@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+
+<body>
+    <form enctype="multipart/form-data" method="post">
+        <textarea name="toml" rows="16" style="width: 80%" autofocus>
+[[files]]
+kind = "stdin"
+
+[[files]]
+kind = "stdout"
+
+[[files]]
+kind = "stderr"
+        </textarea>
+        <br />
+
+        <input type="file" name="wasm" accept="application/wasm" />
+        <input type="submit" />
+    </form>
+</body>
+
+</html>

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <style>
+        #console {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: black;
+            color: white;
+            overflow: scroll;
+            display: block;
+            height: 28em;
+            width: 80ch;
+        }
+    </style>
+
+    <script type="text/javascript">
+        function update(kind) {
+            return fetch(kind, { method: 'POST' })
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+
+                    return response.text();
+                })
+                .then((response) => {
+                    let console = document.getElementById('console');
+                    console.innerHTML = console.innerHTML + response.replace(/(?:\r\n|\r|\n)/g, '<br>');
+                    console.scrollTop = console.scrollHeight;
+                    update(kind);
+                });
+        }
+
+        function onLoad() {
+            update('out');
+        }
+    </script>
+</head>
+
+<body onload="onLoad();">
+    <div id="console" />
+</body>
+
+</html>

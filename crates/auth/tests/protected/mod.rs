@@ -30,7 +30,7 @@ async fn protected_authenticated() {
         Provider::GitHub,
         AccessToken::new(std::env::var("GITHUB_TOKEN").unwrap()),
     );
-    let app = test_app("localhost/auth".to_owned());
+    let app = test_app("localhost".to_owned());
     let response = app
         .oneshot(
             Request::builder()
@@ -60,7 +60,7 @@ Session { provider: GitHub, token: AccessToken([redacted]) }"#
 async fn protected_invalid_token() {
     let key = RsaPrivateKey::from_pkcs8_der(include_bytes!("../../rsa2048-priv.der")).unwrap();
     let session = Session::new(Provider::GitHub, AccessToken::new("BAD TOKEN".to_owned()));
-    let app = test_app("localhost/auth".to_owned());
+    let app = test_app("localhost".to_owned());
     let response = app
         .oneshot(
             Request::builder()
@@ -89,7 +89,7 @@ async fn protected_invalid_token() {
 
 #[tokio::test]
 async fn protected_no_token() {
-    let app = test_app("localhost/auth".to_owned());
+    let app = test_app("localhost".to_owned());
     let response = app
         .oneshot(
             Request::builder()

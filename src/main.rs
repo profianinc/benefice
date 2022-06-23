@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::Write;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -9,9 +10,14 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{extract::Multipart, response::Html};
-use axum::{Router, Server};
+use axum::{Extension, Router, Server};
+
+use drawbridge_auth::providers::github;
+use drawbridge_auth::{AuthRedirectRoot, Session};
 
 use once_cell::sync::Lazy;
+use rsa::pkcs8::DecodePrivateKey;
+use rsa::RsaPrivateKey;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
@@ -46,14 +52,29 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let key = RsaPrivateKey::from_pkcs8_der(&std::fs::read("key.der").expect("read key.der file"))
+        .expect("parse key.der");
+
+    let host = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000);
+
     let app = Router::new()
+        .route(github::AUTHORIZED_URI, get(github::routes::authorized))
+        .route(github::LOGIN_URI, get(github::routes::login))
+        .route(github::LOGOUT_URI, get(github::routes::logout))
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
         .route("/", get(root_get).post(root_post))
+        .layer(Extension(key))
+        .layer(Extension(AuthRedirectRoot(host.to_string())))
+        .layer(Extension(github::OAuthClient::new(
+            &host.to_string(),
+            std::env::var("CLIENT_ID").expect("github oauth CLIENT_ID"),
+            std::env::var("CLIENT_SECRET").expect("github oauth CLIENT_SECRET"),
+        )))
         .layer(TraceLayer::new_for_http());
 
-    Server::bind(&"0.0.0.0:3000".parse().unwrap())
+    Server::bind(&host)
         .serve(app.into_make_service())
         .await
         .unwrap()
@@ -63,9 +84,16 @@ async fn root_get() -> Html<&'static str> {
     Html(include_str!("root_get.html"))
 }
 
-async fn root_post(mut multipart: Multipart) -> Result<impl IntoResponse, StatusCode> {
+async fn root_post(
+    mut multipart: Multipart,
+    session: Option<Session>,
+) -> Result<impl IntoResponse, StatusCode> {
     let mut wasm = None;
     let mut toml = None;
+
+    if session.is_none() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
 
     while let Some(mut field) = multipart
         .next_field()

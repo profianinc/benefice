@@ -14,11 +14,12 @@ use oauth2::basic::BasicClient;
 use oauth2::{AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
 use serde::Deserialize;
 
-pub const LOGIN_URI: &str = "/github";
-pub const AUTHORIZED_URI: &str = "/github/authorized";
+pub const LOGIN_URI: &str = "/auth/github";
+pub const LOGOUT_URI: &str = "/auth/github/logout";
+pub const AUTHORIZED_URI: &str = "/auth/github/authorized";
 
 #[derive(Debug)]
-pub enum ValidateError {
+pub(crate) enum ValidateError {
     Http(ureq::Error),
     Json(io::Error),
     InvalidStatusCode(InvalidStatusCode),
@@ -43,13 +44,13 @@ impl fmt::Display for ValidateError {
 impl std::error::Error for ValidateError {}
 
 #[derive(Deserialize)]
-pub struct GitHubUser {
+pub(crate) struct GitHubUser {
     #[serde(rename = "login")]
     pub username: String,
     pub id: u64,
 }
 
-pub async fn validate(session: &Session) -> Result<GitHubUser, ValidateError> {
+pub(crate) async fn validate(session: &Session) -> Result<GitHubUser, ValidateError> {
     #[derive(Deserialize)]
     struct Error {
         message: String,

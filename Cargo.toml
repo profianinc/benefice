@@ -16,3 +16,5 @@ tower-http = { version = "0.3.0", features = ["trace"] }
 uuid = { version = "*", features = ["v4"] }
 once_cell = "1.12.0"
 tempfile = "3.3.0"
+rsa = { version = "0.6", default-features = false }
+drawbridge-auth = { path = "crates/auth" }

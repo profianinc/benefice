@@ -98,7 +98,9 @@ name = "benefice"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "drawbridge-auth",
  "once_cell",
+ "rsa",
  "tempfile",
  "tokio",
  "tower-http",

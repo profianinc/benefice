@@ -4,8 +4,11 @@
 use super::super::Provider;
 use super::OAuthClient;
 use crate::session::Session;
+use crate::COOKIE_NAME;
 
 use axum::extract::{Extension, Query};
+use axum::http::header::SET_COOKIE;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect};
 use oauth2::ureq::http_client;
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
@@ -28,18 +31,43 @@ pub async fn login(Extension(OAuthClient(client)): Extension<OAuthClient>) -> im
     Redirect::to(auth_url.as_str())
 }
 
-/// Prepare an encrypted token for GitHub OAuth.
+/// Logout the user by deleting their session cookie.
+/// Anyone who still has access to that session cookie will still be logged in.
+pub async fn logout() -> impl IntoResponse {
+    let cookie = format!("{COOKIE_NAME}=; Path=/; Max-Age=0");
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, cookie.parse().unwrap());
+    (headers, Redirect::to("/"))
+}
+
+/// Prepare an encrypted token for GitHub OAuth. 
 pub async fn authorized(
     query: Query<AuthRequest>,
     Extension(OAuthClient(client)): Extension<OAuthClient>,
-    key: Extension<RsaPrivateKey>,
-) -> Result<String, String> {
-    let token = oauth_client
+    Extension(key): Extension<RsaPrivateKey>,
+) -> Result<(HeaderMap, Redirect), (StatusCode, String)> {
+    let token = client
         .exchange_code(AuthorizationCode::new(query.code.clone()))
         .request(http_client)
-        .map_err(|e| format!("Failed to get token: {}", e))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to get token: {}", e),
+            )
+        })?;
 
-    Session::new(Provider::GitHub, token.access_token().clone())
-        .encrypt(&key.0)
-        .map_err(|e| format!("Failed to encrypt token: {}", e))
+    let token = Session::new(Provider::GitHub, token.access_token().clone())
+        .encrypt(&key)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to encrypt token: {}", e),
+            )
+        })?;
+
+    let cookie = format!("{}={}; SameSite=Lax; Path=/", COOKIE_NAME, token);
+    let mut headers = HeaderMap::new();
+    headers.insert(SET_COOKIE, cookie.parse().unwrap());
+
+    Ok((headers, Redirect::to("/")))
 }

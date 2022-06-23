@@ -7,7 +7,6 @@ use crate::session::Session;
 
 use axum::extract::{Extension, Query};
 use axum::response::{IntoResponse, Redirect};
-use oauth2::basic::BasicClient;
 use oauth2::ureq::http_client;
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use rsa::RsaPrivateKey;
@@ -32,7 +31,7 @@ pub async fn login(Extension(OAuthClient(client)): Extension<OAuthClient>) -> im
 /// Prepare an encrypted token for GitHub OAuth.
 pub async fn authorized(
     query: Query<AuthRequest>,
-    oauth_client: Extension<BasicClient>,
+    Extension(OAuthClient(client)): Extension<OAuthClient>,
     key: Extension<RsaPrivateKey>,
 ) -> Result<String, String> {
     let token = oauth_client

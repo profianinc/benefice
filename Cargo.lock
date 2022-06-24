@@ -98,7 +98,7 @@ name = "benefice"
 version = "0.1.0"
 dependencies = [
  "axum",
- "drawbridge-auth",
+ "benefice-auth",
  "once_cell",
  "rsa",
  "tempfile",
@@ -106,6 +106,25 @@ dependencies = [
  "tower-http",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "benefice-auth"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "bincode",
+ "hyper",
+ "oauth2",
+ "rand",
+ "regex",
+ "rsa",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "ureq",
 ]
 
 [[package]]
@@ -243,25 +262,6 @@ checksum = "f2fb860ca6fafa5552fb6d0e816a69c8e49f0908bf524e30a90d97c85892d506"
 dependencies = [
  "block-buffer",
  "crypto-common",
-]
-
-[[package]]
-name = "drawbridge-auth"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64",
- "bincode",
- "hyper",
- "oauth2",
- "rand",
- "regex",
- "rsa",
- "serde",
- "serde_json",
- "tokio",
- "tower",
- "ureq",
 ]
 
 [[package]]

@@ -9,12 +9,15 @@ members = [
 ]
 
 [dependencies]
+# Internal dependencies
+benefice-auth = { path = "crates/auth" }
+
+# External dependencies
 axum = { version = "0.5.5", features = ["multipart"] }
-tokio = { version = "1.19.2", features = ["macros", "process", "rt-multi-thread", "io-util", "sync"] }
-tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
-tower-http = { version = "0.3.0", features = ["trace"] }
-uuid = { version = "*", features = ["v4"] }
 once_cell = "1.12.0"
-tempfile = "3.3.0"
 rsa = { version = "0.6", default-features = false }
-drawbridge-auth = { path = "crates/auth" }
+tempfile = "3.3.0"
+tokio = { version = "1.19.2", features = ["macros", "process", "rt-multi-thread", "io-util", "sync"] }
+tower-http = { version = "0.3.0", features = ["trace"] }
+tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
+uuid = { version = "*", features = ["v4"] }

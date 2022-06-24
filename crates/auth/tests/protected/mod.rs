@@ -3,8 +3,8 @@
 
 use super::{test_app, PROTECTED};
 
-use drawbridge_auth::providers::Provider;
-use drawbridge_auth::{Session, COOKIE_NAME};
+use benefice_auth::providers::Provider;
+use benefice_auth::{Session, COOKIE_NAME};
 
 use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;

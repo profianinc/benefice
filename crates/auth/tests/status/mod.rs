@@ -5,8 +5,8 @@ use super::{test_app, STATUS};
 
 use std::str;
 
-use drawbridge_auth::providers::Provider;
-use drawbridge_auth::{Session, COOKIE_NAME};
+use benefice_auth::providers::Provider;
+use benefice_auth::{Session, COOKIE_NAME};
 
 use axum::http::{Request, StatusCode};
 use hyper::Body;

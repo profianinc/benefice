@@ -57,7 +57,7 @@ pub(crate) async fn validate(session: &Session) -> Result<GitHubUser, ValidateEr
     }
 
     let res = ureq::get("https://api.github.com/user")
-        .set(USER_AGENT.as_str(), "drawbridge")
+        .set(USER_AGENT.as_str(), "benefice")
         .set(
             AUTHORIZATION.as_str(),
             &format!("Bearer {}", session.token.secret()),

@@ -58,6 +58,6 @@ async fn authorized() {
     let body = str::from_utf8(&body).unwrap();
     assert_eq!(
         body,
-        "Failed to deserialize query string. Expected something of type `drawbridge_auth::providers::github::routes::AuthRequest`. Error: missing field `code`"
+        "Failed to deserialize query string. Expected something of type `benefice_auth::providers::github::routes::AuthRequest`. Error: missing field `code`"
     );
 }

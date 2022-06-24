@@ -5,8 +5,8 @@ mod protected;
 mod providers;
 mod status;
 
-use drawbridge_auth::providers::github;
-use drawbridge_auth::AuthRedirectRoot;
+use benefice_auth::providers::github;
+use benefice_auth::AuthRedirectRoot;
 
 use axum::extract::Extension;
 use axum::routing::get;

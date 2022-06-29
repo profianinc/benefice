@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::fs::read;
 use std::io::Write;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +13,10 @@ use axum::routing::{get, post};
 use axum::{extract::Multipart, response::Html};
 use axum::{Router, Server};
 
+use anyhow::{bail, Context as _};
+use clap::Parser;
 use once_cell::sync::Lazy;
+use openidconnect::url::Url;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
@@ -36,8 +41,73 @@ struct State {
 static OUT: Lazy<RwLock<HashMap<Uuid, Arc<Mutex<State>>>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
+/// Demo workload executor.
+///
+/// Any command-line options listed here may be specified by one or
+/// more configuration files, which can be used by passing the
+/// name of the file on the command-line with the syntax `@config.toml`.
+/// The configuration file must contain valid TOML table mapping argument
+/// names to their values.
+#[derive(Parser, Debug)]
+#[clap(author, version, about)]
+struct Args {
+    /// Address to bind to.
+    #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000))]
+    addr: SocketAddr,
+
+    /// OpenID Connect issuer URL.
+    #[clap(long)]
+    oidc_issuer: Url,
+
+    /// OpenID Connect client ID.
+    #[clap(long)]
+    oidc_client: String,
+
+    /// OpenID Connect secret.
+    #[clap(long)]
+    oidc_secret: Option<String>,
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
+    let Args {
+        addr,
+        oidc_issuer: _,
+        oidc_client: _,
+        oidc_secret: _,
+    } = std::env::args()
+        .try_fold(Vec::new(), |mut args, arg| {
+            if let Some(path) = arg.strip_prefix('@') {
+                let conf = read(path).context(format!("failed to read config file at `{path}`"))?;
+                match toml::from_slice(&conf)
+                    .context(format!("failed to parse config file at `{path}` as TOML"))?
+                {
+                    toml::Value::Table(kv) => kv.into_iter().try_for_each(|(k, v)| {
+                        match v {
+                            toml::Value::String(v) => args.push(format!("--{k}={v}")),
+                            toml::Value::Integer(v) => args.push(format!("--{k}={v}")),
+                            toml::Value::Float(v) => args.push(format!("--{k}={v}")),
+                            toml::Value::Boolean(v) => {
+                                if v {
+                                    args.push(format!("--{k}"))
+                                }
+                            }
+                            _ => bail!(
+                                "unsupported value type for field `{k}` in config file at `{path}`"
+                            ),
+                        }
+                        Ok(())
+                    })?,
+                    _ => bail!("invalid config file format in file at `{path}`"),
+                }
+            } else {
+                args.push(arg);
+            }
+            Ok(args)
+        })
+        .map(Args::parse_from)
+        .context("Failed to parse arguments")?;
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG")
@@ -53,10 +123,8 @@ async fn main() {
         .route("/", get(root_get).post(root_post))
         .layer(TraceLayer::new_for_http());
 
-    Server::bind(&"0.0.0.0:3000".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap()
+    Server::bind(&addr).serve(app.into_make_service()).await?;
+    Ok(())
 }
 
 async fn root_get() -> Html<&'static str> {

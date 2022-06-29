@@ -1,0 +1,28 @@
+name: Lint
+on: [ push, pull_request ]
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2.4.0
+    - name: Setup Rust toolchain
+      run: rustup show
+    - name: cargo fmt
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: -- --check
+    - name: cargo clippy
+      uses: actions-rs/cargo@v1
+      with:
+        command: clippy
+        args: --workspace
+  nix:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2.4.0
+    - uses: cachix/install-nix-action@v17
+    - name: nix flake check
+      run: nix flake check
+    - name: nix fmt
+      run: nix fmt ./flake.nix ./shell.nix

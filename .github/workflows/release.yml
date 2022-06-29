@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+    - main
+  push:
+    branches:
+    - main
+    tags:
+    - "v*.*.*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        platform:
+        - host: ubuntu-20.04
+          target: x86_64-unknown-linux-musl
+    runs-on: ${{ matrix.platform.host }}
+    steps:
+    - uses: actions/checkout@v3
+    - uses: cachix/install-nix-action@v17
+    - uses: cachix/cachix-action@v10
+      with:
+        name: enarx
+        authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+    - run: nix build -L ${{ matrix.platform.buildArgs }} '.#benefice-${{ matrix.platform.target }}'
+    - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result-bin/bin/benefice "benefice-${{ matrix.platform.target }}"
+    - uses: actions/upload-artifact@v3
+      with:
+        name: benefice-${{ matrix.platform.target }}
+        path: benefice-${{ matrix.platform.target }}
+
+    - run: nix build -L ${{ matrix.platform.buildArgs }} '.#benefice-${{ matrix.platform.target }}-oci'
+    - run: nix run --inputs-from . 'nixpkgs#coreutils' -- --coreutils-prog=ginstall -p ./result "benefice-${{ matrix.platform.target }}-oci"
+    - uses: actions/upload-artifact@v3
+      with:
+        name: benefice-${{ matrix.platform.target }}-oci
+        path: benefice-${{ matrix.platform.target }}-oci
+
+  test-bin:
+    needs: build
+    strategy:
+      matrix:
+        platform:
+        - host: ubuntu-20.04
+          target: x86_64-unknown-linux-musl
+    runs-on: ${{ matrix.platform.host }}
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: benefice-${{ matrix.platform.target }}
+    - run: chmod +x ./benefice-${{ matrix.platform.target }}
+    - run: ./benefice-${{ matrix.platform.target }} --help
+
+  test-oci:
+    needs: build
+    strategy:
+      matrix:
+        platform:
+        - host: ubuntu-20.04
+          target: x86_64-unknown-linux-musl
+    runs-on: ${{ matrix.platform.host }}
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: benefice-${{ matrix.platform.target }}-oci
+    - run: docker load < benefice-${{ matrix.platform.target }}-oci
+    # TODO: Attempt to run `benefice --help` within the loaded container
+
+  release:
+    permissions:
+      contents: write
+    if: startsWith(github.ref, 'refs/tags/') && github.event_name == 'push'
+    needs: [ build, test-bin, test-oci ]
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: benefice-x86_64-unknown-linux-musl
+    - uses: actions/download-artifact@v3
+      with:
+        name: benefice-x86_64-unknown-linux-musl-oci
+
+    - uses: softprops/action-gh-release@v1
+      with:
+        draft: true
+        prerelease: true
+        files: |
+          benefice-x86_64-unknown-linux-musl
+          benefice-x86_64-unknown-linux-musl-oci

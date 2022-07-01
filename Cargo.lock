@@ -106,6 +106,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "num_cpus",
  "once_cell",
  "openidconnect",
  "tempfile",

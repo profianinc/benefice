@@ -181,6 +181,7 @@ in
       anyhow = rustPackages."registry+https://github.com/rust-lang/crates.io-index".anyhow."1.0.58" { inherit profileName; };
       axum = rustPackages."registry+https://github.com/rust-lang/crates.io-index".axum."0.5.9" { inherit profileName; };
       clap = rustPackages."registry+https://github.com/rust-lang/crates.io-index".clap."3.2.7" { inherit profileName; };
+      num_cpus = rustPackages."registry+https://github.com/rust-lang/crates.io-index".num_cpus."1.13.1" { inherit profileName; };
       once_cell = rustPackages."registry+https://github.com/rust-lang/crates.io-index".once_cell."1.12.0" { inherit profileName; };
       openidconnect = rustPackages."registry+https://github.com/rust-lang/crates.io-index".openidconnect."2.3.1" { inherit profileName; };
       tempfile = rustPackages."registry+https://github.com/rust-lang/crates.io-index".tempfile."3.3.0" { inherit profileName; };

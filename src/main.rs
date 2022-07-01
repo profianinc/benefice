@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+#![forbid(unsafe_code)]
+#![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
+
 use std::collections::HashMap;
 use std::fs::read;
 use std::io::Write;

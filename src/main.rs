@@ -33,7 +33,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const VIEW_TIMEOUT: Duration = Duration::from_secs(10);
 const WASM_MAX: usize = 25 * 1024 * 1024; // 25 MiB
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
@@ -61,6 +60,10 @@ struct Args {
     #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000))]
     addr: SocketAddr,
 
+    /// Job timeout (in seconds).
+    #[clap(long, default_value_t = 15)]
+    timeout: u64,
+
     /// OpenID Connect issuer URL.
     #[clap(long)]
     oidc_issuer: Url,
@@ -78,6 +81,7 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let Args {
         addr,
+        timeout,
         oidc_issuer: _,
         oidc_client: _,
         oidc_secret: _,
@@ -126,7 +130,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
-        .route("/", get(root_get).post(root_post))
+        .route("/", get(root_get).post(move |mp| root_post(mp, timeout)))
         .layer(TraceLayer::new_for_http());
 
     Server::bind(&addr).serve(app.into_make_service()).await?;
@@ -137,7 +141,10 @@ async fn root_get() -> Html<&'static str> {
     Html(include_str!("root_get.html"))
 }
 
-async fn root_post(mut multipart: Multipart) -> Result<impl IntoResponse, StatusCode> {
+async fn root_post(
+    mut multipart: Multipart,
+    timeout: u64,
+) -> Result<impl IntoResponse, StatusCode> {
     let mut wasm = None;
     let mut toml = None;
 
@@ -223,7 +230,7 @@ async fn root_post(mut multipart: Multipart) -> Result<impl IntoResponse, Status
         .insert(uuid, Arc::new(Mutex::new(State { exec, wasm, toml })));
 
     tokio::spawn(async move {
-        sleep(VIEW_TIMEOUT).await;
+        sleep(Duration::from_secs(timeout)).await;
         OUT.write().await.remove(&uuid);
     });
 

@@ -60,6 +60,10 @@ struct Args {
     #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000))]
     addr: SocketAddr,
 
+    /// Maximum jobs.
+    #[clap(long, default_value_t = num_cpus::get())]
+    jobs: usize,
+
     /// Job timeout (in seconds).
     #[clap(long, default_value_t = 15)]
     timeout: u64,
@@ -81,6 +85,7 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let Args {
         addr,
+        jobs,
         timeout,
         oidc_issuer: _,
         oidc_client: _,
@@ -130,7 +135,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
-        .route("/", get(root_get).post(move |mp| root_post(mp, timeout)))
+        .route(
+            "/",
+            get(root_get).post(move |mp| root_post(mp, timeout, jobs)),
+        )
         .layer(TraceLayer::new_for_http());
 
     Server::bind(&addr).serve(app.into_make_service()).await?;
@@ -144,7 +152,13 @@ async fn root_get() -> Html<&'static str> {
 async fn root_post(
     mut multipart: Multipart,
     timeout: u64,
+    jobs: usize,
 ) -> Result<impl IntoResponse, StatusCode> {
+    // Detect too many jobs early.
+    if OUT.read().await.len() >= jobs {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
     let mut wasm = None;
     let mut toml = None;
 
@@ -225,9 +239,14 @@ async fn root_post(
         .spawn()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    OUT.write()
-        .await
-        .insert(uuid, Arc::new(Mutex::new(State { exec, wasm, toml })));
+    let mut lock = OUT.write().await;
+
+    // Final confirmation that we will allow this job.
+    if lock.len() >= jobs {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    lock.insert(uuid, Arc::new(Mutex::new(State { exec, wasm, toml })));
 
     tokio::spawn(async move {
         sleep(Duration::from_secs(timeout)).await;

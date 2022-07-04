@@ -69,6 +69,11 @@ struct Args {
     #[clap(long, default_value_t = 15)]
     timeout: u64,
 
+    /// Command to execute, normally path to `enarx` binary.
+    /// This command will be executed as: `<cmd> run --wasmcfgfile <path-to-config> <path-to-wasm>`
+    #[clap(long, default_value = "enarx")]
+    command: String,
+
     /// OpenID Connect issuer URL.
     #[clap(long)]
     oidc_issuer: Url,
@@ -88,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
         addr,
         jobs,
         timeout,
+        command,
         oidc_issuer: _,
         oidc_client: _,
         oidc_secret: _,
@@ -138,7 +144,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/err", post(uuid_err_post))
         .route(
             "/",
-            get(root_get).post(move |mp| root_post(mp, timeout, jobs)),
+            get(root_get).post(move |mp| root_post(mp, command, timeout, jobs)),
         )
         .layer(TraceLayer::new_for_http());
 
@@ -152,6 +158,7 @@ async fn root_get() -> Html<&'static str> {
 
 async fn root_post(
     mut multipart: Multipart,
+    command: String,
     timeout: u64,
     jobs: usize,
 ) -> Result<impl IntoResponse, StatusCode> {
@@ -228,7 +235,7 @@ async fn root_post(
     let wasm = wasm.ok_or(StatusCode::BAD_REQUEST)?;
     let toml = toml.ok_or(StatusCode::BAD_REQUEST)?;
     let uuid = Uuid::new_v4();
-    let exec = Command::new("enarx")
+    let exec = Command::new(command)
         .arg("run")
         .arg("--wasmcfgfile")
         .arg(toml.path())

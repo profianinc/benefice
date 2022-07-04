@@ -29,6 +29,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
+use tracing::error;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -237,7 +238,10 @@ async fn root_post(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            error!("failed to spawn process: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let mut lock = OUT.write().await;
 

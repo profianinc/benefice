@@ -75,7 +75,7 @@ struct Args {
     command: String,
 
     /// OpenID Connect issuer URL.
-    #[clap(long)]
+    #[clap(long, default_value = "https://auth.profian.com/")]
     oidc_issuer: Url,
 
     /// OpenID Connect client ID.

@@ -4,6 +4,8 @@
 #![forbid(unsafe_code)]
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
+mod auth;
+
 use std::collections::HashMap;
 use std::fs::read;
 use std::io::Write;
@@ -12,6 +14,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::Extension;
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -22,7 +25,10 @@ use axum::{Router, Server};
 use anyhow::{bail, Context as _};
 use clap::Parser;
 use once_cell::sync::Lazy;
+use openidconnect::core::{CoreClient, CoreProviderMetadata};
+use openidconnect::ureq::http_client;
 use openidconnect::url::Url;
+use openidconnect::{AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
@@ -58,7 +64,7 @@ static OUT: Lazy<RwLock<HashMap<Uuid, Arc<Mutex<State>>>>> =
 #[clap(author, version, about)]
 struct Args {
     /// Address to bind to.
-    #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000))]
+    #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3000))]
     addr: SocketAddr,
 
     /// Maximum jobs.
@@ -94,9 +100,9 @@ async fn main() -> anyhow::Result<()> {
         jobs,
         timeout,
         command,
-        oidc_issuer: _,
-        oidc_client: _,
-        oidc_secret: _,
+        oidc_issuer,
+        oidc_client,
+        oidc_secret,
     } = std::env::args()
         .try_fold(Vec::new(), |mut args, arg| {
             if let Some(path) = arg.strip_prefix('@') {
@@ -138,14 +144,32 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let redirect_url = format!("https://{addr}/authorized");
+    let issuer_url = IssuerUrl::from_url(oidc_issuer);
+    let provider_metadata = CoreProviderMetadata::discover(&issuer_url, http_client)?;
+    let openid_client = CoreClient::from_provider_metadata(
+        provider_metadata,
+        ClientId::new(oidc_client),
+        oidc_secret.map(ClientSecret::new),
+    )
+    .set_redirect_uri(
+        RedirectUrl::new(redirect_url)
+            .with_context(|| "failed to parse redirect url".to_string())?,
+    )
+    .set_auth_type(AuthType::RequestBody);
+
     let app = Router::new()
+        .route("/login", get(auth::login))
+        .route("/logout", get(auth::logout))
+        .route("/authorized", get(auth::authorized))
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
         .route(
             "/",
-            get(root_get).post(move |mp| root_post(mp, command, timeout, jobs)),
+            get(root_get).post(move |claims, mp| root_post(claims, mp, command, timeout, jobs)),
         )
+        .layer(Extension(openid_client))
         .layer(TraceLayer::new_for_http());
 
     Server::bind(&addr).serve(app.into_make_service()).await?;
@@ -156,7 +180,9 @@ async fn root_get() -> Html<&'static str> {
     Html(include_str!("root_get.html"))
 }
 
+// TODO: create tests for endpoints: #38
 async fn root_post(
+    _claims: auth::Claims,
     mut multipart: Multipart,
     command: String,
     timeout: u64,

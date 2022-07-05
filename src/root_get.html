@@ -2,6 +2,7 @@
 <html>
 
 <body>
+    <a id="auth" href="/login">Login</a><span id="message"></span>
     <form enctype="multipart/form-data" method="post">
         <textarea name="toml" rows="16" style="width: 80%" autofocus>
 [[files]]
@@ -15,9 +16,26 @@ kind = "stderr"
         </textarea>
         <br />
 
-        <input type="file" name="wasm" accept="application/wasm" />
-        <input type="submit" />
+        <input id="upload_file" type="file" name="wasm" accept="application/wasm" />
+        <input id="upload_submit" type="submit" />
     </form>
+    <script>
+        var authenticated = document.cookie.indexOf("SESSION") !== -1;
+
+        if (authenticated) {
+            var authLink = window.document.getElementById("auth");
+
+            authLink.setAttribute("href", "/logout");
+            authLink.textContent = "Logout";
+        } else {
+            var uploadFile = window.document.getElementById("upload_file");
+            var uploadSubmit = window.document.getElementById("upload_submit");
+            var messageDiv = window.document.getElementById("message");
+            uploadFile.disabled = true;
+            uploadSubmit.disabled = true;
+            messageDiv.innerText = " - Please login with GitHub to submit workloads";
+        }
+    </script>
 </body>
 
 </html>

@@ -103,6 +103,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "openidconnect",
+ "serde",
  "tempfile",
  "tokio",
  "toml",

@@ -3,11 +3,6 @@ name = "benefice"
 version = "0.1.0"
 edition = "2021"
 
-[workspace]
-members = [
-    "crates/auth",
-]
-
 [dependencies]
 axum = { version = "0.5.5", features = ["multipart"] }
 tokio = { version = "1.19.2", features = ["macros", "process", "rt-multi-thread", "io-util", "sync"] }

@@ -64,8 +64,13 @@ static OUT: Lazy<RwLock<HashMap<Uuid, Arc<Mutex<State>>>>> =
 #[clap(author, version, about)]
 struct Args {
     /// Address to bind to.
-    #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 3000))]
+    #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000))]
     addr: SocketAddr,
+
+    /// Externally accessible root URL.
+    /// For example: https://benefice.example.com
+    #[clap(long)]
+    url: Url,
 
     /// Maximum jobs.
     #[clap(long, default_value_t = num_cpus::get())]
@@ -97,6 +102,7 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let Args {
         addr,
+        url,
         jobs,
         timeout,
         command,
@@ -144,7 +150,6 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let redirect_url = format!("https://{addr}/authorized");
     let issuer_url = IssuerUrl::from_url(oidc_issuer);
     let provider_metadata = CoreProviderMetadata::discover(&issuer_url, http_client)?;
     let openid_client = CoreClient::from_provider_metadata(
@@ -152,10 +157,10 @@ async fn main() -> anyhow::Result<()> {
         ClientId::new(oidc_client),
         oidc_secret.map(ClientSecret::new),
     )
-    .set_redirect_uri(
-        RedirectUrl::new(redirect_url)
-            .with_context(|| "failed to parse redirect url".to_string())?,
-    )
+    .set_redirect_uri(RedirectUrl::from_url(
+        url.join("/authorized")
+            .with_context(|| "failed to append /authorized path to url")?,
+    ))
     .set_auth_type(AuthType::RequestBody);
 
     let app = Router::new()

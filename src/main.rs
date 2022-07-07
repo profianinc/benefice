@@ -93,7 +93,7 @@ struct Args {
     #[clap(long)]
     oidc_client: String,
 
-    /// OpenID Connect secret.
+    /// Path to a file containing OpenID Connect secret.
     #[clap(long)]
     oidc_secret: Option<String>,
 }
@@ -150,6 +150,14 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let oidc_secret = oidc_secret
+        .map(|ref path| {
+            read(path).with_context(|| format!("Failed to read OpenID Connect secret at `{path}`"))
+        })
+        .transpose()?
+        .map(String::from_utf8)
+        .transpose()
+        .context("OpenID Connect secret is not valid UTF-8")?;
     let issuer_url = IssuerUrl::from_url(oidc_issuer);
     let provider_metadata = CoreProviderMetadata::discover(&issuer_url, http_client)?;
     let openid_client = CoreClient::from_provider_metadata(

@@ -6,6 +6,10 @@
   inputs.cargo2nix.inputs.nixpkgs.follows = "nixpkgs";
   inputs.cargo2nix.inputs.rust-overlay.follows = "rust-overlay";
   inputs.cargo2nix.url = github:cargo2nix/cargo2nix;
+  inputs.enarx.inputs.flake-compat.follows = "flake-compat";
+  inputs.enarx.inputs.flake-utils.follows = "flake-utils";
+  inputs.enarx.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.enarx.url = github:enarx/enarx;
   inputs.flake-compat.flake = false;
   inputs.flake-compat.url = github:edolstra/flake-compat;
   inputs.flake-utils.url = github:numtide/flake-utils;
@@ -17,6 +21,7 @@
   outputs = {
     self,
     cargo2nix,
+    enarx,
     flake-utils,
     nixpkgs,
     ...
@@ -35,8 +40,16 @@
           overlays = [cargo2nix.overlays.default];
         };
 
-        cargo2nixBin = cargo2nix.packages.${system}.cargo2nix;
-        devRust = pkgs.rust-bin.fromRustupToolchainFile "${self}/rust-toolchain.toml";
+        pkgsDev.cargo2nix = cargo2nix.packages.${system}.cargo2nix;
+        pkgsDev.enarx = enarx.packages.${system}.enarx;
+        pkgsDev.rust = pkgs.rust-bin.fromRustupToolchainFile "${self}/rust-toolchain.toml";
+        devShell = pkgs.mkShell {
+          buildInputs =
+            [
+              pkgs.openssl
+            ]
+            ++ pkgs.lib.mapAttrsToList (_: pkg: pkg) pkgsDev;
+        };
 
         cargo.toml = builtins.fromTOML (builtins.readFile "${self}/Cargo.toml");
 
@@ -83,26 +96,17 @@
       in {
         formatter = pkgs.alejandra;
 
-        packages = {
-          "${cargo.toml.package.name}" = nativeBin;
-          "${cargo.toml.package.name}-x86_64-unknown-linux-musl" = x86_64LinuxMuslBin;
-          "${cargo.toml.package.name}-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslBin;
+        devShells.default = devShell;
 
-          "${cargo.toml.package.name}-debug" = nativeDebugBin;
-          "${cargo.toml.package.name}-debug-x86_64-unknown-linux-musl" = x86_64LinuxMuslDebugBin;
-          "${cargo.toml.package.name}-debug-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslDebugBin;
-        };
+        packages."${cargo.toml.package.name}" = nativeBin;
+        packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl" = x86_64LinuxMuslBin;
+        packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslBin;
+
+        packages."${cargo.toml.package.name}-debug" = nativeDebugBin;
+        packages."${cargo.toml.package.name}-debug-x86_64-unknown-linux-musl" = x86_64LinuxMuslDebugBin;
+        packages."${cargo.toml.package.name}-debug-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslDebugBin;
+
         packages.default = nativeBin;
-
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            pkgs.openssl
-
-            cargo2nixBin
-
-            devRust
-          ];
-        };
       }
     );
 }

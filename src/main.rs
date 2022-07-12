@@ -48,6 +48,7 @@ struct State {
     exec: Child,
     wasm: NamedTempFile,
     toml: NamedTempFile,
+    user: String,
 }
 
 static OUT: Lazy<RwLock<HashMap<Uuid, Arc<Mutex<State>>>>> =
@@ -195,15 +196,30 @@ async fn root_get() -> Html<&'static str> {
 
 // TODO: create tests for endpoints: #38
 async fn root_post(
-    _claims: auth::Claims,
+    claims: auth::Claims,
     mut multipart: Multipart,
     command: String,
     timeout: u64,
     jobs: usize,
 ) -> Result<impl IntoResponse, StatusCode> {
+    let user = claims.subject().to_string();
+
     // Detect too many jobs early.
-    if OUT.read().await.len() >= jobs {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
+    {
+        let lock = OUT.read().await;
+
+        if lock.len() >= jobs {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+
+        for state in lock.values() {
+            let lock = state.lock().await;
+
+            if lock.user == user {
+                // This user is already running a job.
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+        }
     }
 
     let mut wasm = None;
@@ -296,7 +312,15 @@ async fn root_post(
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    lock.insert(uuid, Arc::new(Mutex::new(State { exec, wasm, toml })));
+    lock.insert(
+        uuid,
+        Arc::new(Mutex::new(State {
+            exec,
+            wasm,
+            toml,
+            user,
+        })),
+    );
 
     tokio::spawn(async move {
         sleep(Duration::from_secs(timeout)).await;

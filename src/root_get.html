@@ -1,10 +1,71 @@
 <!DOCTYPE html>
 <html>
-
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Enarx Demo</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+</head>
 <body>
-    <a id="auth" href="/login">Login</a><span id="message"></span>
+    <nav class="navbar is-light" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+          <a class="navbar-item" href="#">
+            <img src="https://raw.githubusercontent.com/enarx/website/main/static/img/assets/images/enarx-black-100-bg.png" width="28" height="28">
+          </a>
+      
+          <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarBasicExample">
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+            <span aria-hidden="true"></span>
+          </a>
+        </div>
+      
+        <div id="navbarBasicExample" class="navbar-menu">
+          <div class="navbar-start">
+            <a class="navbar-item" style="font-weight: 700;">
+              Enarx Demo
+            </a>
+          </div>
+      
+          <div class="navbar-end">
+            <div class="navbar-item">
+              <div class="buttons">
+                <a class="button is-primary" id="auth" href="/login">
+                  Log in
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </nav>
+<section class="section">
+  <div class="container">
+
+    <article class="message is-warning">
+        <div class="message-header">
+          <p>Login required</p>
+          <button class="delete" aria-label="delete"></button>
+        </div>
+        <div class="message-body">
+            <a id="auth" href="/login">Login</a>: <span id="message"></span>
+        </div>
+      </article>
+
     <form enctype="multipart/form-data" method="post">
-        <textarea name="toml" rows="16" style="width: 80%" autofocus>
+        <div class="file">
+            <label class="file-label">
+              <input id="upload_file" class="file-input" type="file" name="wasm" accept="application/wasm">
+              <span class="file-cta">
+                <span class="file-label">
+                  Choose a Wasm file…
+                </span>
+              </span>
+            </label>
+        </div>
+        <div style="padding: 10px 0;"><progress class="progress" id="progressBar" value="0" max="100" style="width:250px;"></progress></div>
+        <input id="upload_submit" type="submit" class="button" value="Deploy Wasm workload" />
+        <br />
+        <br />
+        <textarea  class="textarea" name="toml" autofocus>
 [[files]]
 kind = "stdin"
 
@@ -15,10 +76,9 @@ kind = "stdout"
 kind = "stderr"
         </textarea>
         <br />
-
-        <input id="upload_file" type="file" name="wasm" accept="application/wasm" />
-        <input id="upload_submit" type="submit" />
     </form>
+  </div>
+</section>
     <script>
         var authenticated = document.cookie.indexOf("SESSION") !== -1;
 
@@ -33,9 +93,10 @@ kind = "stderr"
             var messageDiv = window.document.getElementById("message");
             uploadFile.disabled = true;
             uploadSubmit.disabled = true;
-            messageDiv.innerText = " - Please login with GitHub to submit workloads";
+            messageDiv.innerText = "please login with GitHub to submit Wasm workloads";
         }
     </script>
+
 </body>
 
 </html>

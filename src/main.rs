@@ -330,13 +330,26 @@ async fn root_post(
     Ok((StatusCode::SEE_OTHER, [("Location", format!("/{}", uuid))]))
 }
 
-async fn uuid_get(Path(uuid): Path<String>) -> Result<impl IntoResponse, StatusCode> {
+async fn uuid_get(
+    claims: auth::Claims,
+    Path(uuid): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
     let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
-    OUT.read().await.get(&uuid).ok_or(StatusCode::NOT_FOUND)?;
+    let lock = OUT.read().await;
+    let exec = lock.get(&uuid).ok_or(StatusCode::NOT_FOUND)?;
+    let user = claims.subject().to_string();
+
+    if exec.lock().await.user != user {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
     Ok(Html(include_str!("uuid_get.html")))
 }
 
-async fn uuid_out_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, StatusCode> {
+async fn uuid_out_post(
+    claims: auth::Claims,
+    Path(uuid): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
     let mut buf = [0; 4096];
 
     let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
@@ -346,6 +359,12 @@ async fn uuid_out_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, St
         .get(&uuid)
         .ok_or(StatusCode::NOT_FOUND)?
         .clone();
+
+    let user = claims.subject().to_string();
+
+    if exec.lock().await.user != user {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     let future = async {
         exec.lock()
@@ -365,7 +384,10 @@ async fn uuid_out_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, St
     }
 }
 
-async fn uuid_err_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, StatusCode> {
+async fn uuid_err_post(
+    claims: auth::Claims,
+    Path(uuid): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
     let mut buf = [0; 4096];
 
     let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
@@ -375,6 +397,12 @@ async fn uuid_err_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, St
         .get(&uuid)
         .ok_or(StatusCode::NOT_FOUND)?
         .clone();
+
+    let user = claims.subject().to_string();
+
+    if exec.lock().await.user != user {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     let future = async {
         exec.lock()

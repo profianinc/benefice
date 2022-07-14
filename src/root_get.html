@@ -44,29 +44,33 @@
     <section class="section">
         <div class="container">
 
-            <article class="message is-warning">
+            <article class="message is-warning" id="auth_warning">
                 <div class="message-header">
                     <p>Login required</p>
                     <button class="delete" aria-label="delete"></button>
                 </div>
                 <div class="message-body">
-                    <a id="auth" href="/login">Login</a>: <span id="message"></span>
+                    <a href="/login">Login</a>: <span id="message"></span>
                 </div>
             </article>
 
             <form enctype="multipart/form-data" method="post">
-                <div class="file">
+                <div id="upload_file" class="file has-name">
                     <label class="file-label">
-                        <input id="upload_file" class="file-input" type="file" name="wasm" accept="application/wasm">
+                        <input class="file-input" type="file" name="wasm" accept="application/wasm">
                         <span class="file-cta">
+                            <span class="file-icon">
+                                <i class="fas fa-upload"></i>
+                            </span>
                             <span class="file-label">
                                 Choose a Wasm file…
                             </span>
                         </span>
+                        <span class="file-name">
+                            No file uploaded
+                        </span>
                     </label>
                 </div>
-                <div style="padding: 10px 0;"><progress class="progress" id="progressBar" value="0" max="100"
-                        style="width:250px;"></progress></div>
                 <input id="upload_submit" type="submit" class="button" value="Deploy Wasm workload" />
                 <br />
                 <br />
@@ -87,16 +91,27 @@ kind = "stderr"
     <script>
         var authenticated = document.cookie.indexOf("SESSION") !== -1;
 
+        var fileInput = document.querySelector('#upload_file input[type=file]');
+
+        fileInput.onchange = () => {
+            if (fileInput.files.length > 0) {
+                var fileName = document.querySelector('#upload_file .file-name');
+                fileName.textContent = fileInput.files[0].name;
+            }
+        }
+
         if (authenticated) {
             var authLink = window.document.getElementById("auth");
+            var authWarning = window.document.getElementById("auth_warning");
 
             authLink.setAttribute("href", "/logout");
             authLink.textContent = "Logout";
+            authWarning.setAttribute("style", "display: none");
         } else {
             var uploadFile = window.document.getElementById("upload_file");
             var uploadSubmit = window.document.getElementById("upload_submit");
             var messageDiv = window.document.getElementById("message");
-            uploadFile.disabled = true;
+            uploadFile.setAttribute("style", "display: none");
             uploadSubmit.disabled = true;
             messageDiv.innerText = "please login with GitHub to submit Wasm workloads";
         }

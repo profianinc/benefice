@@ -54,6 +54,12 @@
                 </div>
             </article>
 
+            <div class="content">
+                <h3>Enarx Demo</h3>
+                <p>Run a Wasm payload in an Enarx Keep. Learn more from <a href="https://enarx.dev/">Enarx.dev</a> and
+                    star us on <a href="https://github.com/enarx/enarx">GitHub</a>.</p>
+            </div>
+
             <form enctype="multipart/form-data" method="post">
                 <div id="upload_file" class="file has-name">
                     <label class="file-label">
@@ -74,6 +80,7 @@
                 <input id="upload_submit" type="submit" class="button" value="Deploy Wasm workload" />
                 <br />
                 <br />
+                <a href="https://enarx.dev/docs/running/enarx_toml">Enarx.toml</a>:
                 <textarea class="textarea" name="toml" autofocus>
 [[files]]
 kind = "stdin"

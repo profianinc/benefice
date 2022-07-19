@@ -81,22 +81,22 @@
                 <br />
                 <br />
                 <a href="https://enarx.dev/docs/running/enarx_toml">Enarx.toml</a>:
-                <textarea class="textarea" name="toml" autofocus>
-# This configuration enables forwarding of stdin, stdout, and stderr.
-[[files]]
-kind = "stdin"
-
-[[files]]
-kind = "stdout"
-
-[[files]]
-kind = "stderr"
-</textarea>
+                <textarea class="textarea" name="toml" autofocus></textarea>
                 <br />
             </form>
         </div>
     </section>
     <script>
+        function httpGetAsync(theUrl, callback) {
+            var xmlHttp = new XMLHttpRequest();
+            xmlHttp.onreadystatechange = function () {
+                if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
+                    callback(xmlHttp.responseText);
+            }
+            xmlHttp.open("GET", theUrl, true); // true for asynchronous 
+            xmlHttp.send(null);
+        }
+
         var authenticated = document.cookie.indexOf("SESSION") !== -1;
 
         var fileInput = document.querySelector('#upload_file input[type=file]');
@@ -123,6 +123,14 @@ kind = "stderr"
             uploadSubmit.disabled = true;
             messageDiv.innerText = "please login with GitHub to submit Wasm workloads";
         }
+
+        httpGetAsync(
+            "/config-template.toml",
+            function (response) {
+                var textarea = window.document.getElementsByTagName("textarea")[0];
+                textarea.value = response;
+            }
+        );
     </script>
 
 </body>

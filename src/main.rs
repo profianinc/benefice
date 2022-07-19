@@ -176,6 +176,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/login", get(auth::login))
         .route("/logout", get(auth::logout))
         .route("/authorized", get(auth::authorized))
+        .route("/config-template.toml", get(config_template_toml))
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
@@ -328,6 +329,10 @@ async fn root_post(
     });
 
     Ok((StatusCode::SEE_OTHER, [("Location", format!("/{}", uuid))]))
+}
+
+async fn config_template_toml() -> &'static str {
+    enarx_config_86d3ad9::CONFIG_TEMPLATE
 }
 
 async fn uuid_get(

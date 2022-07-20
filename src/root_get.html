@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Enarx Demo</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"
+        integrity="sha512-894YE6QWD5I59HgZOGReFYm4dnWc1Qt5NtvYSaNcOP+u1T9qYdvdihz0PPSiiqn/+/3e7Jo4EaG7TubfWGUrMQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.7.1/ace.min.js"
+        integrity="sha512-7Jmn5XgQKvX7kd2yARvOywZYQfC6eB7WLLdpWfGifPHe+93PwGf2BpkrX/vPRgPxllivNDnD8TSMHpYb60opMg=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.7.1/mode-toml.min.js"
+        integrity="sha512-8QOETbDki7akpeMrYulOWuKx9MRoOYo7VqMuudle9ek/WN/pXcWhV6GL+tSyAoLigUwFuJHiN31Sao+trgPoPQ=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 
 <body>
@@ -43,11 +52,10 @@
     </nav>
     <section class="section">
         <div class="container">
-
             <article class="message is-warning" id="warning_message" style="display: none">
                 <div class="message-header">
                     <p>Warning</p>
-                    <button class="delete" aria-label="delete"></button>
+                    <button class="delete" aria-label="delete" onclick="hideMessage()"></button>
                 </div>
                 <div id="message-body" class="message-body">
                     <span id="message"></span>
@@ -60,10 +68,11 @@
                     star us on <a href="https://github.com/enarx/enarx">GitHub</a>.</p>
             </div>
 
-            <form enctype="multipart/form-data" method="post">
-                <div id="upload_file" class="file has-name">
+            <form enctype="multipart/form-data" method="post" onsubmit="submitWorkloadForm()">
+                <div id="upload_file" class="file has-name" style="display: inline-block">
                     <label class="file-label">
-                        <input class="file-input" type="file" name="wasm" accept="application/wasm">
+                        <input class="file-input" type="file" name="wasm" accept="application/wasm"
+                            onchange="updateWorkloadSubmit()">
                         <span class="file-cta">
                             <span class="file-icon">
                                 <i class="fas fa-upload"></i>
@@ -77,12 +86,12 @@
                         </span>
                     </label>
                 </div>
-                <input id="upload_submit" type="submit" class="button" value="Deploy Wasm workload" />
+                <input id="upload_submit" type="submit" class="button" value="Deploy workload" disabled />
                 <br />
+                <input id="upload_toml" type="hidden" name="toml" />
                 <br />
                 <a href="https://enarx.dev/docs/running/enarx_toml">Enarx.toml</a>:
-                <textarea class="textarea" name="toml" autofocus></textarea>
-                <br />
+                <pre id="editor" style="min-height: 50vh; resize: none"></pre>
             </form>
         </div>
     </section>
@@ -98,16 +107,6 @@
         }
 
         var authenticated = document.cookie.indexOf("SESSION") !== -1;
-
-        var fileInput = document.querySelector('#upload_file input[type=file]');
-
-        fileInput.onchange = () => {
-            if (fileInput.files.length > 0) {
-                var fileName = document.querySelector('#upload_file .file-name');
-                fileName.textContent = fileInput.files[0].name;
-            }
-        }
-
         var queryParams = new URLSearchParams(window.location.search);
         var messageCode = queryParams.get('message');
         var messageHTML = [];
@@ -153,9 +152,7 @@
             authLink.textContent = "Logout";
         } else {
             var uploadFile = window.document.getElementById("upload_file");
-            var uploadSubmit = window.document.getElementById("upload_submit");
             uploadFile.setAttribute("style", "display: none");
-            uploadSubmit.disabled = true;
             messageHTML.push('Please <a href="/login">Log in</a> with GitHub to submit Wasm workloads.');
         }
 
@@ -164,13 +161,46 @@
             messageDiv.innerHTML = messageHTML.join("<br />")
         }
 
+        var enarxTomlEditor = ace.edit("editor");
+        enarxTomlEditor.session.setMode("ace/mode/toml");
+
+        $(".navbar-burger").click(function () {
+            $(".navbar-burger").toggleClass("is-active");
+            $(".navbar-menu").toggleClass("is-active");
+        });
+
+        function hideMessage() {
+            warningMessage.setAttribute("style", "display: none");
+        }
+
+        function submitWorkloadForm() {
+            var uploadToml = window.document.getElementById("upload_toml");
+            uploadToml.setAttribute("value", enarxTomlEditor.getValue());
+        }
+
+        function updateWorkloadSubmit() {
+            var fileInput = document.querySelector('#upload_file input[type=file]');
+            var uploadSubmit = window.document.getElementById("upload_submit");
+
+            if (fileInput.files.length > 0) {
+                var fileName = document.querySelector('#upload_file .file-name');
+                fileName.textContent = fileInput.files[0].name;
+                uploadSubmit.removeAttribute("disabled");
+            } else {
+                uploadSubmit.setAttribute("disabled", "");
+            }
+        }
+
         httpGetAsync(
             "/config-template.toml",
             function (response) {
-                var textarea = window.document.getElementsByTagName("textarea")[0];
-                textarea.value = response;
+                enarxTomlEditor.setValue(response, -1);
             }
         );
+
+        if (performance.navigation.type === performance.navigation.TYPE_RELOAD) {
+            updateWorkloadSubmit()
+        }
     </script>
 
 </body>

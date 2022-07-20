@@ -5,6 +5,7 @@
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
 mod auth;
+mod redirect;
 
 use std::collections::HashMap;
 use std::fs::read;
@@ -14,8 +15,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::Extension;
-use axum::extract::Path;
+use auth::{Claims, ClaimsError};
+use axum::extract::{Extension, Path};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -197,12 +198,13 @@ async fn root_get() -> Html<&'static str> {
 
 // TODO: create tests for endpoints: #38
 async fn root_post(
-    claims: auth::Claims,
+    claims: Result<Claims, ClaimsError>,
     mut multipart: Multipart,
     command: String,
     timeout: u64,
     jobs: usize,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> impl IntoResponse {
+    let claims = claims.map_err(|e| e.redirect_response().into_response())?;
     let user = claims.subject().to_string();
 
     // Detect too many jobs early.
@@ -210,7 +212,7 @@ async fn root_post(
         let lock = OUT.read().await;
 
         if lock.len() >= jobs {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+            return Err(redirect::too_many_workloads().into_response());
         }
 
         for state in lock.values() {
@@ -218,7 +220,7 @@ async fn root_post(
 
             if lock.user == user {
                 // This user is already running a job.
-                return Err(StatusCode::TOO_MANY_REQUESTS);
+                return Err(redirect::workload_running().into_response());
             }
         }
     }
@@ -229,30 +231,34 @@ async fn root_post(
     while let Some(mut field) = multipart
         .next_field()
         .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
     {
         match field.name() {
             Some("wasm") => {
                 if Some("application/wasm") != field.content_type() {
-                    return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+                    return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response());
                 }
 
                 if wasm.is_some() {
-                    return Err(StatusCode::BAD_REQUEST);
+                    return Err(StatusCode::BAD_REQUEST.into_response());
                 }
 
                 let mut len = 0;
                 let mut out = tempfile::NamedTempFile::new()
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
 
-                while let Some(chunk) = field.chunk().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+                while let Some(chunk) = field
+                    .chunk()
+                    .await
+                    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
+                {
                     len += chunk.len();
                     if len > WASM_MAX {
-                        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+                        return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
                     }
 
                     out.write_all(&chunk)
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
                 }
 
                 wasm = Some(out);
@@ -260,25 +266,29 @@ async fn root_post(
 
             Some("toml") => {
                 if field.content_type().is_some() {
-                    return Err(StatusCode::BAD_REQUEST);
+                    return Err(StatusCode::BAD_REQUEST.into_response());
                 }
 
                 if toml.is_some() {
-                    return Err(StatusCode::BAD_REQUEST);
+                    return Err(StatusCode::BAD_REQUEST.into_response());
                 }
 
                 let mut len = 0;
                 let mut out = tempfile::NamedTempFile::new()
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
 
-                while let Some(chunk) = field.chunk().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+                while let Some(chunk) = field
+                    .chunk()
+                    .await
+                    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
+                {
                     len += chunk.len();
                     if len > TOML_MAX {
-                        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+                        return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
                     }
 
                     out.write_all(&chunk)
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
                 }
 
                 toml = Some(out);
@@ -288,8 +298,8 @@ async fn root_post(
         }
     }
 
-    let wasm = wasm.ok_or(StatusCode::BAD_REQUEST)?;
-    let toml = toml.ok_or(StatusCode::BAD_REQUEST)?;
+    let wasm = wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+    let toml = toml.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
     let uuid = Uuid::new_v4();
     let exec = Command::new(command)
         .arg("run")
@@ -303,14 +313,14 @@ async fn root_post(
         .spawn()
         .map_err(|e| {
             error!("failed to spawn process: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
 
     let mut lock = OUT.write().await;
 
     // Final confirmation that we will allow this job.
     if lock.len() >= jobs {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
+        return Err(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
 
     lock.insert(
@@ -336,24 +346,25 @@ async fn config_template_toml() -> &'static str {
 }
 
 async fn uuid_get(
-    claims: auth::Claims,
     Path(uuid): Path<String>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
+    claims: Result<Claims, ClaimsError>,
+) -> impl IntoResponse {
+    let uuid: Uuid = uuid.parse().map_err(|_| redirect::workload_not_found())?;
     let lock = OUT.read().await;
-    let exec = lock.get(&uuid).ok_or(StatusCode::NOT_FOUND)?;
+    let exec = lock.get(&uuid).ok_or_else(redirect::workload_not_found)?;
+    let claims = claims.map_err(|e| e.redirect_response())?;
     let user = claims.subject().to_string();
 
     if exec.lock().await.user != user {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(redirect::workload_not_found());
     }
 
     Ok(Html(include_str!("uuid_get.html")))
 }
 
 async fn uuid_out_post(
-    claims: auth::Claims,
     Path(uuid): Path<String>,
+    claims: Claims,
 ) -> Result<impl IntoResponse, StatusCode> {
     let mut buf = [0; 4096];
 
@@ -390,8 +401,8 @@ async fn uuid_out_post(
 }
 
 async fn uuid_err_post(
-    claims: auth::Claims,
     Path(uuid): Path<String>,
+    claims: Claims,
 ) -> Result<impl IntoResponse, StatusCode> {
     let mut buf = [0; 4096];
 

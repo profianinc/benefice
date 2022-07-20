@@ -44,13 +44,13 @@
     <section class="section">
         <div class="container">
 
-            <article class="message is-warning" id="auth_warning">
+            <article class="message is-warning" id="warning_message" style="display: none">
                 <div class="message-header">
-                    <p>Login required</p>
+                    <p>Warning</p>
                     <button class="delete" aria-label="delete"></button>
                 </div>
-                <div class="message-body">
-                    <a href="/login">Login</a>: <span id="message"></span>
+                <div id="message-body" class="message-body">
+                    <span id="message"></span>
                 </div>
             </article>
 
@@ -108,20 +108,60 @@
             }
         }
 
+        var queryParams = new URLSearchParams(window.location.search);
+        var messageCode = queryParams.get('message');
+        var messageHTML = [];
+        var warningMessage = window.document.getElementById("warning_message");
+        var messageDiv = window.document.getElementById("message");
+
+        // SECURITY: Do not put query parameter values in messageHTML.
+        switch (messageCode) {
+            case 'no_session': {
+                if (!authenticated) {
+                    messageHTML.push("It looks like you have been logged out.");
+                }
+                break;
+            }
+            case 'workload_not_found': {
+                if (authenticated) {
+                    messageHTML.push("The workload was not found or you are not permitted to view it.");
+                } else {
+                    messageHTML.push("You need to be logged in to view workloads.");
+                }
+                break;
+            }
+            case 'too_many_workloads': {
+                messageHTML.push("Too many workloads are running on this server! Please try again later.");
+                break;
+            }
+            case 'workload_running': {
+                messageHTML.push("You already have a workload running.");
+                break;
+            }
+            case 'internal_error': {
+                messageHTML.push("An internal error occurred handling your request. Please try again or contact an administrator.");
+                break;
+            }
+            default: {
+                break;
+            }
+        }
+
         if (authenticated) {
             var authLink = window.document.getElementById("auth");
-            var authWarning = window.document.getElementById("auth_warning");
-
             authLink.setAttribute("href", "/logout");
             authLink.textContent = "Logout";
-            authWarning.setAttribute("style", "display: none");
         } else {
             var uploadFile = window.document.getElementById("upload_file");
             var uploadSubmit = window.document.getElementById("upload_submit");
-            var messageDiv = window.document.getElementById("message");
             uploadFile.setAttribute("style", "display: none");
             uploadSubmit.disabled = true;
-            messageDiv.innerText = "please login with GitHub to submit Wasm workloads";
+            messageHTML.push('Please <a href="/login">Log in</a> with GitHub to submit Wasm workloads.');
+        }
+
+        if (messageHTML.length !== 0) {
+            warningMessage.setAttribute("style", "");
+            messageDiv.innerHTML = messageHTML.join("<br />")
         }
 
         httpGetAsync(

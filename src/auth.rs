@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+use crate::redirect;
+
 use axum::extract::{Extension, FromRequest, Query, RequestParts};
 use axum::headers;
 use axum::http::header::SET_COOKIE;
@@ -22,6 +24,36 @@ pub struct AuthRequest {
     pub state: String,
 }
 
+pub enum ClaimsError {
+    // TODO: handle refresh tokens here: https://github.com/profianinc/benefice/issues/43
+    // ExpiredToken(String),
+    InvalidSession(String),
+    NoToken(String),
+    InternalError(String),
+}
+
+impl ClaimsError {
+    pub fn redirect_response(self) -> Redirect {
+        match self {
+            ClaimsError::InvalidSession(_) | ClaimsError::NoToken(_) => redirect::no_session(),
+            ClaimsError::InternalError(_) => redirect::internal_error(),
+        }
+    }
+}
+
+impl IntoResponse for ClaimsError {
+    fn into_response(self) -> Response {
+        match self {
+            ClaimsError::InvalidSession(message) | ClaimsError::NoToken(message) => {
+                (StatusCode::UNAUTHORIZED, message).into_response()
+            }
+            ClaimsError::InternalError(message) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
+            }
+        }
+    }
+}
+
 #[repr(transparent)]
 #[derive(Clone, Debug)]
 pub struct Claims(CoreUserInfoClaims);
@@ -36,51 +68,35 @@ impl Deref for Claims {
 
 #[async_trait]
 impl<B: Send> FromRequest<B> for Claims {
-    type Rejection = Response;
+    type Rejection = ClaimsError;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
         let cookies = TypedHeader::<headers::Cookie>::from_request(req)
             .await
             .map_err(|e| {
                 debug!("failed to retrieve cookies from request: {e}");
-                (
-                    StatusCode::UNAUTHORIZED,
-                    "Failed to get cookies from request",
-                )
-                    .into_response()
+                ClaimsError::NoToken("Authorization failed".to_string())
             })?;
 
-        let token = cookies.get(COOKIE_NAME).ok_or_else(|| {
-            (StatusCode::UNAUTHORIZED, "Authorization failed".to_string()).into_response()
-        })?;
+        let token = cookies
+            .get(COOKIE_NAME)
+            .ok_or_else(|| ClaimsError::NoToken("Authorization failed".to_string()))?;
 
         let Extension(oidc) = req.extract::<Extension<CoreClient>>().await.map_err(|e| {
             error!("OpenID Connect client extension missing: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "OpenID Connect client extension missing".to_string(),
-            )
-                .into_response()
+            ClaimsError::InternalError("OpenID Connect client extension missing".to_string())
         })?;
 
         let token = AccessToken::new(token.into());
         let info_req = oidc.user_info(token, None).map_err(|e| {
             error!("failed to construct user info request: {e}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "OpenID Connect client initialization failed",
-            )
-                .into_response()
+            ClaimsError::InternalError("OpenID Connect client initialization failed".to_string())
         })?;
 
         trace!("request user info");
         let claims = info_req.request(http_client).map_err(|e| {
             debug!("failed to request user info: {e}");
-            (
-                StatusCode::UNAUTHORIZED,
-                format!("OpenID Connect credential validation failed: {e}"),
-            )
-                .into_response()
+            ClaimsError::InvalidSession(format!("OpenID Connect credential validation failed: {e}"))
         })?;
         trace!("received user claims: {:?}", claims);
         Ok(Self(claims))

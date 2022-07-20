@@ -15,7 +15,7 @@ pub fn too_many_workloads() -> Redirect {
     Redirect::to("/?message=too_many_workloads")
 }
 
-/// A user already has a running payload.
+/// A user already has a running workload.
 pub fn workload_running() -> Redirect {
     Redirect::to("/?message=workload_running")
 }

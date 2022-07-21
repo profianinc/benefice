@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
+// SPDX-License-Identifier: AGPL-3.0-only
+
 use axum::response::Redirect;
 
 /// The user has no session and has likely been logged out.

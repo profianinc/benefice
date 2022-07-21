@@ -5,9 +5,11 @@
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
 mod auth;
+mod github;
 mod redirect;
 mod templates;
 
+use crate::auth::{Claims, ClaimsError};
 use crate::templates::{HtmlTemplate, RootGetTemplate, UuidGetTemplate};
 
 use std::collections::HashMap;
@@ -18,7 +20,6 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use auth::{Claims, ClaimsError};
 use axum::extract::Multipart;
 use axum::extract::{Extension, Path};
 use axum::http::StatusCode;
@@ -28,6 +29,7 @@ use axum::{Router, Server};
 
 use anyhow::{bail, Context as _};
 use clap::Parser;
+use humansize::{file_size_opts as options, FileSize};
 use once_cell::sync::Lazy;
 use openidconnect::core::{CoreClient, CoreProviderMetadata};
 use openidconnect::ureq::http_client;
@@ -39,12 +41,12 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::error;
+use tracing::{debug, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
+const ENARX_REPO: &str = "enarx/enarx";
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const WASM_MAX: usize = 50 * 1024 * 1024; // 50 MiB
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
 #[allow(dead_code)]
@@ -81,9 +83,21 @@ struct Args {
     #[clap(long, default_value_t = num_cpus::get())]
     jobs: usize,
 
-    /// Job timeout (in seconds).
-    #[clap(long, default_value_t = 15)]
+    /// Max Wasm file size (in bytes, default is 50 MB).
+    #[clap(long, default_value_t = 50 * 1024 * 1024)]
+    workload_max: usize,
+
+    /// Max Wasm file size for starred users (in bytes, default is 50 MB).
+    #[clap(long, default_value_t = 50 * 1024 * 1024)]
+    workload_max_starred: usize,
+
+    /// Job timeout (in minutes).
+    #[clap(long, default_value_t = 5)]
     timeout: u64,
+
+    /// Job timeout for starred users (in minutes).
+    #[clap(long, default_value_t = 30)]
+    timeout_starred: u64,
 
     /// Command to execute, normally path to `enarx` binary.
     /// This command will be executed as: `<cmd> run --wasmcfgfile <path-to-config> <path-to-wasm>`
@@ -109,7 +123,10 @@ async fn main() -> anyhow::Result<()> {
         addr,
         url,
         jobs,
+        workload_max,
+        workload_max_starred,
         timeout,
+        timeout_starred,
         command,
         oidc_issuer,
         oidc_client,
@@ -185,7 +202,23 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/err", post(uuid_err_post))
         .route(
             "/",
-            get(root_get).post(move |claims, mp| root_post(claims, mp, command, timeout, jobs)),
+            get(move |claims| {
+                root_get(
+                    claims,
+                    (workload_max, workload_max_starred),
+                    (timeout, timeout_starred),
+                )
+            })
+            .post(move |claims, mp| {
+                root_post(
+                    claims,
+                    mp,
+                    command,
+                    (workload_max, workload_max_starred),
+                    (timeout, timeout_starred),
+                    jobs,
+                )
+            }),
         )
         .layer(Extension(openid_client))
         .layer(TraceLayer::new_for_http());
@@ -194,8 +227,43 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_get() -> impl IntoResponse {
+async fn root_get(
+    claims: Option<Claims>,
+    workload_max: (usize, usize),
+    timeouts: (u64, u64),
+) -> impl IntoResponse {
+    let logged_in = claims.is_some();
+    let starred = claims
+        .map(|claims| {
+            claims.has_starred(ENARX_REPO).unwrap_or_else(|e| {
+                let user = claims.subject().to_string();
+                error!("Failed to get stars for user {user}: {e}");
+                false
+            })
+        })
+        .unwrap_or(false);
+
     HtmlTemplate(RootGetTemplate {
+        logged_in,
+        starred,
+        workload_upload_limits: (
+            // NOTE: This will only fail if sized are negative: https://docs.rs/humansize/latest/humansize/trait.FileSize.html#errors
+            workload_max
+                .0
+                .file_size(options::CONVENTIONAL)
+                .unwrap_or_else(|e| {
+                    error!("Failed to get human readable size string: {e}");
+                    "?".to_string()
+                }),
+            workload_max
+                .1
+                .file_size(options::CONVENTIONAL)
+                .unwrap_or_else(|e| {
+                    error!("Failed to get human readable size string: {e}");
+                    "?".to_string()
+                }),
+        ),
+        workload_timeouts: timeouts,
         enarx_toml_template: enarx_config::CONFIG_TEMPLATE,
     })
 }
@@ -205,11 +273,26 @@ async fn root_post(
     claims: Result<Claims, ClaimsError>,
     mut multipart: Multipart,
     command: String,
-    timeout: u64,
+    workload_max: (usize, usize),
+    timeouts: (u64, u64),
     jobs: usize,
 ) -> impl IntoResponse {
     let claims = claims.map_err(|e| e.redirect_response().into_response())?;
     let user = claims.subject().to_string();
+    let (wasm_max, timeout) = match claims.has_starred(ENARX_REPO) {
+        Err(e) => {
+            error!("Failed to get stars for user {user}: {e}");
+            return Err(redirect::internal_error().into_response());
+        }
+        Ok(false) => {
+            debug!("{user} is NOT a starred user");
+            (workload_max.0, timeouts.0)
+        }
+        Ok(true) => {
+            debug!("{user} IS a starred user");
+            (workload_max.1, timeouts.1)
+        }
+    };
 
     // Detect too many jobs early.
     {
@@ -257,7 +340,7 @@ async fn root_post(
                     .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
                 {
                     len += chunk.len();
-                    if len > WASM_MAX {
+                    if len > wasm_max {
                         return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
                     }
 
@@ -338,6 +421,8 @@ async fn root_post(
     );
 
     tokio::spawn(async move {
+        // Convert from minutes to seconds.
+        let timeout = timeout * 60;
         sleep(Duration::from_secs(timeout)).await;
         OUT.write().await.remove(&uuid);
     });

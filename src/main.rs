@@ -6,6 +6,9 @@
 
 mod auth;
 mod redirect;
+mod templates;
+
+use crate::templates::{HtmlTemplate, RootGetTemplate, UuidGetTemplate};
 
 use std::collections::HashMap;
 use std::fs::read;
@@ -16,11 +19,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use auth::{Claims, ClaimsError};
+use axum::extract::Multipart;
 use axum::extract::{Extension, Path};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
-use axum::{extract::Multipart, response::Html};
 use axum::{Router, Server};
 
 use anyhow::{bail, Context as _};
@@ -177,7 +180,6 @@ async fn main() -> anyhow::Result<()> {
         .route("/login", get(auth::login))
         .route("/logout", get(auth::logout))
         .route("/authorized", get(auth::authorized))
-        .route("/config-template.toml", get(config_template_toml))
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
@@ -192,8 +194,10 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_get() -> Html<&'static str> {
-    Html(include_str!("root_get.html"))
+async fn root_get() -> impl IntoResponse {
+    HtmlTemplate(RootGetTemplate {
+        enarx_toml_template: enarx_config_86d3ad9::CONFIG_TEMPLATE,
+    })
 }
 
 // TODO: create tests for endpoints: #38
@@ -341,10 +345,6 @@ async fn root_post(
     Ok((StatusCode::SEE_OTHER, [("Location", format!("/{}", uuid))]))
 }
 
-async fn config_template_toml() -> &'static str {
-    enarx_config_86d3ad9::CONFIG_TEMPLATE
-}
-
 async fn uuid_get(
     Path(uuid): Path<String>,
     claims: Result<Claims, ClaimsError>,
@@ -359,7 +359,7 @@ async fn uuid_get(
         return Err(redirect::workload_not_found());
     }
 
-    Ok(Html(include_str!("uuid_get.html")))
+    Ok(HtmlTemplate(UuidGetTemplate {}))
 }
 
 async fn uuid_out_post(

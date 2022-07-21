@@ -91,7 +91,7 @@
                 <input id="upload_toml" type="hidden" name="toml" />
                 <br />
                 <a href="https://enarx.dev/docs/running/enarx_toml">Enarx.toml</a>:
-                <pre id="editor" style="min-height: 50vh; resize: none"></pre>
+                <pre id="editor" style="min-height: 50vh; resize: none">{{ enarx_toml_template }}</pre>
             </form>
         </div>
     </section>
@@ -190,13 +190,6 @@
                 uploadSubmit.setAttribute("disabled", "");
             }
         }
-
-        httpGetAsync(
-            "/config-template.toml",
-            function (response) {
-                enarxTomlEditor.setValue(response, -1);
-            }
-        );
 
         if (performance.navigation.type === performance.navigation.TYPE_RELOAD) {
             updateWorkloadSubmit()

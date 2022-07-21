@@ -144,7 +144,7 @@ dependencies = [
  "askama",
  "axum",
  "clap",
- "enarx-config-86d3ad9",
+ "enarx-config",
  "num_cpus",
  "once_cell",
  "openidconnect",
@@ -297,10 +297,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3f107b87b6afc2a64fd13cac55fe06d6c8859f12d4b14cbcdd2c67d0976781be"
 
 [[package]]
-name = "enarx-config-86d3ad9"
-version = "0.6.0"
+name = "enarx-config"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17a5297b94b2447bd34ac4bbf5ad3a3df7945ccfd3a81ef3fe83465bc38c1abb"
+checksum = "b782d31676ca29a158bceb5d152ef24c1dc7a911d6f8a8f8190e8fdef9f09365"
 dependencies = [
  "serde",
  "url",

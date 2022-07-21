@@ -68,8 +68,22 @@ SPDX-License-Identifier: AGPL-3.0-only
 
             <div class="content">
                 <h3>Enarx Demo - Secured by <a href="https://www.profian.com">Profian</a></h3>
-                <p>Run a Wasm workload in an Enarx Keep. Learn more from <a href="https://enarx.dev/">Enarx.dev</a> and
-                    star us on <a href="https://github.com/enarx/enarx">GitHub</a>.</p>
+                <p>
+                    Run a Wasm workload in an Enarx Keep. Learn more from <a href="https://enarx.dev/">Enarx.dev</a> and
+                    star us on <a href="https://github.com/enarx/enarx">GitHub</a>.
+                    <br />
+                    {% if logged_in %}
+                    {% if starred %}
+                    You have starred <a href="https://github.com/enarx/enarx">Enarx</a>! Your workloads will run for {{ workload_timeouts.1 }} minutes with a {{
+                    workload_upload_limits.1 }} size limit.
+                    {% else %}
+                    You have not starred <a href="https://github.com/enarx/enarx">Enarx</a>! Your workloads will have a lifetime/size limit of
+                    {{ workload_timeouts.0 }}mins/{{ workload_upload_limits.0 }}
+                    instead of
+                    {{ workload_timeouts.1 }}mins/{{ workload_upload_limits.1 }} respectively.
+                    {% endif %}
+                    {% endif %}
+                </p>
             </div>
 
             <form enctype="multipart/form-data" method="post" onsubmit="submitWorkloadForm()">
@@ -99,6 +113,8 @@ SPDX-License-Identifier: AGPL-3.0-only
             </form>
         </div>
     </section>
+    <!-- A quick workaround to get data into javascript without breaking anything is to use invisible tags -->
+    {% if logged_in %}<div id="authenticated" style="display: none"></div>{% endif %}
     <script>
         function httpGetAsync(theUrl, callback) {
             var xmlHttp = new XMLHttpRequest();
@@ -110,7 +126,7 @@ SPDX-License-Identifier: AGPL-3.0-only
             xmlHttp.send(null);
         }
 
-        var authenticated = document.cookie.indexOf("SESSION") !== -1;
+        var authenticated = window.document.getElementById("authenticated");
         var queryParams = new URLSearchParams(window.location.search);
         var messageCode = queryParams.get('message');
         var messageHTML = [];

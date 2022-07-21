@@ -3,8 +3,9 @@
 
 use std::ops::Deref;
 
-use crate::redirect;
+use crate::{github, redirect};
 
+use anyhow::{anyhow, bail};
 use axum::extract::{Extension, FromRequest, Query, RequestParts};
 use axum::headers;
 use axum::http::header::SET_COOKIE;
@@ -60,6 +61,22 @@ impl IntoResponse for ClaimsError {
 #[repr(transparent)]
 #[derive(Clone, Debug)]
 pub struct Claims(CoreUserInfoClaims);
+
+impl Claims {
+    // TODO: use auth0 for this instead of github directly: https://github.com/profianinc/benefice/issues/71
+    pub fn has_starred(&self, repo_full_name: &str) -> anyhow::Result<bool> {
+        let (user_type, user_id) = self
+            .subject()
+            .split_once('|')
+            .ok_or_else(|| anyhow!("Failed to extract user id from OpenID subject"))?;
+
+        if user_type != "github" {
+            bail!("Cannot get the stars of a non-github user");
+        }
+
+        github::has_starred(user_id, repo_full_name)
+    }
+}
 
 impl Deref for Claims {
     type Target = CoreUserInfoClaims;

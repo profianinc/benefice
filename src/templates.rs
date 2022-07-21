@@ -10,6 +10,10 @@ use axum::{
 #[derive(Template)]
 #[template(path = "root_get.html")]
 pub struct RootGetTemplate {
+    pub logged_in: bool,
+    pub starred: bool,
+    pub workload_upload_limits: (String, String),
+    pub workload_timeouts: (u64, u64),
     pub enarx_toml_template: &'static str,
 }
 

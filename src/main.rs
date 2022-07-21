@@ -44,7 +44,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const WASM_MAX: usize = 25 * 1024 * 1024; // 25 MiB
+const WASM_MAX: usize = 50 * 1024 * 1024; // 50 MiB
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
 #[allow(dead_code)]

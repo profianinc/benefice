@@ -196,7 +196,7 @@ async fn main() -> anyhow::Result<()> {
 
 async fn root_get() -> impl IntoResponse {
     HtmlTemplate(RootGetTemplate {
-        enarx_toml_template: enarx_config_86d3ad9::CONFIG_TEMPLATE,
+        enarx_toml_template: enarx_config::CONFIG_TEMPLATE,
     })
 }
 

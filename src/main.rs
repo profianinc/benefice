@@ -47,7 +47,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 const ENARX_REPO: &str = "enarx/enarx";
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
+// TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
+const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
 #[allow(dead_code)]

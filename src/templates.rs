@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use crate::Limits;
+
 use askama::Template;
 use axum::{
     http::StatusCode,
@@ -12,9 +14,9 @@ use axum::{
 pub struct RootGetTemplate {
     pub logged_in: bool,
     pub starred: bool,
-    pub workload_upload_limits: (String, String),
-    pub workload_timeouts: (u64, u64),
+    pub limits: Limits,
     pub enarx_toml_template: &'static str,
+    pub examples: &'static [&'static str],
 }
 
 #[derive(Template)]

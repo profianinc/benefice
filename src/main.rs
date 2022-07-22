@@ -5,6 +5,7 @@
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
 mod auth;
+mod examples;
 mod github;
 mod redirect;
 mod templates;
@@ -20,8 +21,8 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::Multipart;
 use axum::extract::{Extension, Path};
+use axum::extract::{Multipart, Query};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -35,6 +36,7 @@ use openidconnect::core::{CoreClient, CoreProviderMetadata};
 use openidconnect::ureq::http_client;
 use openidconnect::url::Url;
 use openidconnect::{AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
+use serde::Deserialize;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
@@ -43,17 +45,48 @@ use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use ureq::OrAnyStatus;
 use uuid::Uuid;
 
 const ENARX_REPO: &str = "enarx/enarx";
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
+#[derive(Clone, Copy)]
+pub struct Limits {
+    pub max_size: usize,
+    pub max_size_starred: usize,
+    pub max_runtime: u64,
+    pub max_runtime_starred: u64,
+}
+
+impl Limits {
+    // NOTE: This will only fail if sizes are negative: https://docs.rs/humansize/latest/humansize/trait.FileSize.html#errors
+    pub fn max_size_human(&self) -> String {
+        self.max_size
+            .file_size(options::CONVENTIONAL)
+            .unwrap_or_else(|e| {
+                error!("Failed to get human readable size string: {e}");
+                "?".to_string()
+            })
+    }
+
+    pub fn max_size_starred_human(&self) -> String {
+        self.max_size_starred
+            .file_size(options::CONVENTIONAL)
+            .unwrap_or_else(|e| {
+                error!("Failed to get human readable size string: {e}");
+                "?".to_string()
+            })
+    }
+}
+
 #[allow(dead_code)]
 struct State {
     exec: Child,
-    wasm: NamedTempFile,
-    toml: NamedTempFile,
+    slug: Option<String>,
+    wasm: Option<NamedTempFile>,
+    toml: Option<NamedTempFile>,
     user: String,
 }
 
@@ -83,21 +116,21 @@ struct Args {
     #[clap(long, default_value_t = num_cpus::get())]
     jobs: usize,
 
-    /// Max Wasm file size (in bytes, default is 50 MB).
-    #[clap(long, default_value_t = 50 * 1024 * 1024)]
-    workload_max: usize,
+    /// Max Wasm file size (in bytes, default is 25 MB).
+    #[clap(long, default_value_t = 25 * 1024 * 1024)]
+    workload_max_size: usize,
 
     /// Max Wasm file size for starred users (in bytes, default is 50 MB).
     #[clap(long, default_value_t = 50 * 1024 * 1024)]
-    workload_max_starred: usize,
+    workload_max_size_starred: usize,
 
     /// Job timeout (in minutes).
     #[clap(long, default_value_t = 5)]
-    timeout: u64,
+    workload_runtime: u64,
 
     /// Job timeout for starred users (in minutes).
     #[clap(long, default_value_t = 30)]
-    timeout_starred: u64,
+    workload_runtime_starred: u64,
 
     /// Command to execute, normally path to `enarx` binary.
     /// This command will be executed as: `<cmd> run --wasmcfgfile <path-to-config> <path-to-wasm>`
@@ -123,10 +156,10 @@ async fn main() -> anyhow::Result<()> {
         addr,
         url,
         jobs,
-        workload_max,
-        workload_max_starred,
-        timeout,
-        timeout_starred,
+        workload_max_size,
+        workload_max_size_starred,
+        workload_runtime,
+        workload_runtime_starred,
         command,
         oidc_issuer,
         oidc_client,
@@ -163,6 +196,12 @@ async fn main() -> anyhow::Result<()> {
         })
         .map(Args::parse_from)
         .context("Failed to parse arguments")?;
+    let limits = Limits {
+        max_size: workload_max_size,
+        max_size_starred: workload_max_size_starred,
+        max_runtime: workload_runtime,
+        max_runtime_starred: workload_runtime_starred,
+    };
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
@@ -197,28 +236,14 @@ async fn main() -> anyhow::Result<()> {
         .route("/login", get(auth::login))
         .route("/logout", get(auth::logout))
         .route("/authorized", get(auth::authorized))
+        .route("/enarx_toml_fallback", get(enarx_toml_fallback))
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
         .route(
             "/",
-            get(move |claims| {
-                root_get(
-                    claims,
-                    (workload_max, workload_max_starred),
-                    (timeout, timeout_starred),
-                )
-            })
-            .post(move |claims, mp| {
-                root_post(
-                    claims,
-                    mp,
-                    command,
-                    (workload_max, workload_max_starred),
-                    (timeout, timeout_starred),
-                    jobs,
-                )
-            }),
+            get(move |claims| root_get(claims, limits))
+                .post(move |claims, mp| root_post(claims, mp, command, limits, jobs)),
         )
         .layer(Extension(openid_client))
         .layer(TraceLayer::new_for_http());
@@ -227,11 +252,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_get(
-    claims: Option<Claims>,
-    workload_max: (usize, usize),
-    timeouts: (u64, u64),
-) -> impl IntoResponse {
+async fn root_get(claims: Option<Claims>, limits: Limits) -> impl IntoResponse {
     let logged_in = claims.is_some();
     let starred = claims
         .map(|claims| {
@@ -246,25 +267,9 @@ async fn root_get(
     HtmlTemplate(RootGetTemplate {
         logged_in,
         starred,
-        workload_upload_limits: (
-            // NOTE: This will only fail if sized are negative: https://docs.rs/humansize/latest/humansize/trait.FileSize.html#errors
-            workload_max
-                .0
-                .file_size(options::CONVENTIONAL)
-                .unwrap_or_else(|e| {
-                    error!("Failed to get human readable size string: {e}");
-                    "?".to_string()
-                }),
-            workload_max
-                .1
-                .file_size(options::CONVENTIONAL)
-                .unwrap_or_else(|e| {
-                    error!("Failed to get human readable size string: {e}");
-                    "?".to_string()
-                }),
-        ),
-        workload_timeouts: timeouts,
+        limits,
         enarx_toml_template: enarx_config::CONFIG_TEMPLATE,
+        examples: examples::EXAMPLES,
     })
 }
 
@@ -273,24 +278,23 @@ async fn root_post(
     claims: Result<Claims, ClaimsError>,
     mut multipart: Multipart,
     command: String,
-    workload_max: (usize, usize),
-    timeouts: (u64, u64),
+    limits: Limits,
     jobs: usize,
 ) -> impl IntoResponse {
     let claims = claims.map_err(|e| e.redirect_response().into_response())?;
     let user = claims.subject().to_string();
-    let (wasm_max, timeout) = match claims.has_starred(ENARX_REPO) {
+    let (max_size, max_runtime) = match claims.has_starred(ENARX_REPO) {
         Err(e) => {
             error!("Failed to get stars for user {user}: {e}");
             return Err(redirect::internal_error().into_response());
         }
         Ok(false) => {
             debug!("{user} is NOT a starred user");
-            (workload_max.0, timeouts.0)
+            (limits.max_size, limits.max_runtime)
         }
         Ok(true) => {
             debug!("{user} IS a starred user");
-            (workload_max.1, timeouts.1)
+            (limits.max_size_starred, limits.max_runtime_starred)
         }
     };
 
@@ -312,6 +316,8 @@ async fn root_post(
         }
     }
 
+    let mut workload_type = None;
+    let mut slug = None;
     let mut wasm = None;
     let mut toml = None;
 
@@ -321,6 +327,40 @@ async fn root_post(
         .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
     {
         match field.name() {
+            Some("workloadType") => {
+                if field.content_type().is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                if workload_type.is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                workload_type = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?,
+                );
+            }
+
+            Some("slug") => {
+                if field.content_type().is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                if slug.is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                slug = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?,
+                );
+            }
+
             Some("wasm") => {
                 if Some("application/wasm") != field.content_type() {
                     return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response());
@@ -340,7 +380,7 @@ async fn root_post(
                     .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
                 {
                     len += chunk.len();
-                    if len > wasm_max {
+                    if len > max_size {
                         return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
                     }
 
@@ -385,23 +425,52 @@ async fn root_post(
         }
     }
 
-    let wasm = wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-    let toml = toml.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+    let workload_type = workload_type.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
     let uuid = Uuid::new_v4();
-    let exec = Command::new(command)
-        .arg("run")
-        .arg("--wasmcfgfile")
-        .arg(toml.path())
-        .arg(wasm.path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| {
-            error!("failed to spawn process: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        })?;
+    let exec = match workload_type.as_str() {
+        "drawbridge" => {
+            let slug = slug
+                .as_ref()
+                .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+            Command::new(command)
+                .arg("deploy")
+                .arg(slug)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(|e| {
+                    error!("failed to spawn process: {e}");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                })?
+        }
+        "browser" => {
+            let wasm = wasm
+                .as_ref()
+                .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+            let toml = toml
+                .as_ref()
+                .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+            Command::new(command)
+                .arg("run")
+                .arg("--wasmcfgfile")
+                .arg(toml.path())
+                .arg(wasm.path())
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .map_err(|e| {
+                    error!("failed to spawn process: {e}");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                })?
+        }
+        _ => {
+            return Err(StatusCode::BAD_REQUEST.into_response());
+        }
+    };
 
     let mut lock = OUT.write().await;
 
@@ -414,6 +483,7 @@ async fn root_post(
         uuid,
         Arc::new(Mutex::new(State {
             exec,
+            slug,
             wasm,
             toml,
             user,
@@ -422,12 +492,57 @@ async fn root_post(
 
     tokio::spawn(async move {
         // Convert from minutes to seconds.
-        let timeout = timeout * 60;
+        let timeout = max_runtime * 60;
         sleep(Duration::from_secs(timeout)).await;
         OUT.write().await.remove(&uuid);
     });
 
     Ok((StatusCode::SEE_OTHER, [("Location", format!("/{}", uuid))]))
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct EnarxTomlFallbackParams {
+    repo: String,
+    tag: String,
+}
+
+async fn enarx_toml_fallback(
+    Query(params): Query<EnarxTomlFallbackParams>,
+) -> Result<String, (StatusCode, String)> {
+    let EnarxTomlFallbackParams { repo, tag } = params;
+    let response = ureq::get(&format!(
+        "https://store.profian.com/api/v0.2.0/{repo}/_tag/{tag}/tree/Enarx.toml"
+    ))
+    .call()
+    .or_any_status();
+    let response = response.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get Enarx.toml from repo: {e}"),
+        )
+    })?;
+    let status_code = StatusCode::from_u16(response.status()).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Unknown status code received from drawbridge: {e}"),
+        )
+    })?;
+    let body = response.into_string().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get string contents of Enarx.toml in response body: {e}"),
+        )
+    })?;
+
+    match status_code {
+        StatusCode::OK => Ok(body),
+        StatusCode::NOT_FOUND => Err((
+            StatusCode::NOT_FOUND,
+            format!("Couldn\'t find file in package '{repo}' with tag '{tag}'"),
+        )),
+        status_code => Err((status_code, body)),
+    }
 }
 
 async fn uuid_get(

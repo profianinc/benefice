@@ -3,9 +3,8 @@
 
 use std::ops::Deref;
 
-use crate::{github, redirect};
+use crate::redirect;
 
-use anyhow::{anyhow, bail};
 use axum::extract::{Extension, FromRequest, Query, RequestParts};
 use axum::headers;
 use axum::http::header::SET_COOKIE;
@@ -101,18 +100,14 @@ impl<B: Send> FromRequest<B> for WorkloadSession {
 pub struct Claims(CoreUserInfoClaims, AccessToken);
 
 impl Claims {
-    // TODO: use auth0 for this instead of github directly: https://github.com/profianinc/benefice/issues/71
-    pub async fn has_starred(&self, repo_full_name: &str) -> anyhow::Result<bool> {
-        let (user_type, user_id) = self
-            .subject()
-            .split_once('|')
-            .ok_or_else(|| anyhow!("Failed to extract user id from OpenID subject"))?;
-
-        if user_type != "github" {
-            bail!("Cannot get the stars of a non-github user");
+    /// The GitHub user for the claims.
+    ///
+    /// If not a GitHub account, returns `None`.
+    pub fn github(&self) -> Option<&str> {
+        match self.subject().split_once('|') {
+            Some(("github", user)) => Some(user),
+            _ => None,
         }
-
-        github::has_starred(user_id, repo_full_name).await
     }
 
     pub fn token(&self) -> &AccessToken {

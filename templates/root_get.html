@@ -7,7 +7,7 @@ SPDX-License-Identifier: AGPL-3.0-only
 
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Enarx Demo</title>
+    <title>Try Enarx</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"
         integrity="sha512-894YE6QWD5I59HgZOGReFYm4dnWc1Qt5NtvYSaNcOP+u1T9qYdvdihz0PPSiiqn/+/3e7Jo4EaG7TubfWGUrMQ=="
@@ -25,6 +25,12 @@ SPDX-License-Identifier: AGPL-3.0-only
         <div class="navbar-brand">
             <a class="navbar-item" href="https://enarx.dev">
                 <img src="https://try.enarx.dev/img/enarx.png">
+            </a>
+
+            <span class="navbar-item">by</span>
+
+            <a class="navbar-item" href="https://profian.com" style="width: 100%">
+                <img src="https://try.enarx.dev/img/profian.svg">
             </a>
 
             <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
@@ -63,21 +69,17 @@ SPDX-License-Identifier: AGPL-3.0-only
             </article>
 
             <div class="content">
-                <h3>Enarx Demo - Secured by <a href="https://www.profian.com">Profian</a></h3>
                 <p>
-                    Run a Wasm workload in an Enarx Keep. Learn more from <a href="https://enarx.dev/">Enarx.dev</a> and
-                    star us on <a href="https://github.com/enarx/enarx">GitHub</a>.
-                    <br />
-                    {% if logged_in %}
-                    {% if starred %}
-                    You have starred <a href="https://github.com/enarx/enarx">Enarx</a>! Your workloads will run for {{ workload_timeouts.1 }} minutes with a {{
-                    workload_upload_limits.1 }} size limit.
+                    This site allows you to run a test WebAssembly workload in an Enarx Keep.
+                    Once you have logged in, you simply need to upload a WebAssembly file along with <a
+                        href="https://enarx.dev/docs/running/enarx_toml">the Enarx runtime configuration</a>.
+                    For some sample applications you can use, check out the <a
+                        href="https://github.com/enarx/codex">Enarx Codex</a>.
+                    Learn more at <a href="https://www.enarx.dev/">www.enarx.dev</a>.
+                    {% if ctx.star %}
+                    Thanks for starring the Enarx project!
                     {% else %}
-                    You have not starred <a href="https://github.com/enarx/enarx">Enarx</a>! Your workloads will have a lifetime/size limit of
-                    {{ workload_timeouts.0 }}mins/{{ workload_upload_limits.0 }}
-                    instead of
-                    {{ workload_timeouts.1 }}mins/{{ workload_upload_limits.1 }} respectively.
-                    {% endif %}
+                    To raise the workload limits, star <a href="https://github.com/enarx/enarx">the Enarx project</a>.
                     {% endif %}
                 </p>
             </div>
@@ -100,17 +102,25 @@ SPDX-License-Identifier: AGPL-3.0-only
                         </span>
                     </label>
                 </div>
-                <input id="upload_submit" type="submit" class="button" value="Deploy workload" disabled />
+                <span class="is-pulled-right p-2">
+                    <span class="has-text-weight-bold">Workload Limits:</span>
+                    <span>{{ ctx.timeout }} minutes / {{ ctx.size_limit }} MiB</span>
+                </span>
                 <br />
+
                 <input id="upload_toml" type="hidden" name="toml" />
                 <br />
-                <a href="https://enarx.dev/docs/running/enarx_toml">Enarx.toml</a>:
-                <pre id="editor" style="min-height: 50vh; resize: none">{{ enarx_toml_template }}</pre>
+
+                <pre id="editor" style="min-height: 50vh; resize: none">{{ toml }}</pre>
+                <br />
+
+                <input id="upload_submit" type="submit" class="button is-primary is-large" value="Deploy"
+                    style="width: 100%" disabled />
             </form>
         </div>
     </section>
     <!-- A quick workaround to get data into javascript without breaking anything is to use invisible tags -->
-    {% if logged_in %}<div id="authenticated" style="display: none"></div>{% endif %}
+    {% if ctx.user.is_some() %}<div id="authenticated" style="display: none"></div>{% endif %}
     <script>
         function httpGetAsync(theUrl, callback) {
             var xmlHttp = new XMLHttpRequest();
@@ -118,7 +128,7 @@ SPDX-License-Identifier: AGPL-3.0-only
                 if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
                     callback(xmlHttp.responseText);
             }
-            xmlHttp.open("GET", theUrl, true); // true for asynchronous 
+            xmlHttp.open("GET", theUrl, true); // true for asynchronous
             xmlHttp.send(null);
         }
 

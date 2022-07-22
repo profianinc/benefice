@@ -5,7 +5,6 @@
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
 mod auth;
-mod github;
 mod redirect;
 mod templates;
 
@@ -30,19 +29,19 @@ use axum::{Router, Server};
 
 use anyhow::{bail, Context as _};
 use clap::Parser;
-use humansize::{file_size_opts as options, FileSize};
 use once_cell::sync::Lazy;
 use openidconnect::core::{CoreClient, CoreProviderMetadata};
 use openidconnect::reqwest::async_http_client as client;
 use openidconnect::url::Url;
 use openidconnect::{AccessToken, AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
+use serde::Deserialize;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error};
+use tracing::error;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -50,6 +49,15 @@ const ENARX_REPO: &str = "enarx/enarx";
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
+
+static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+
+    reqwest::ClientBuilder::new()
+        .user_agent(USER_AGENT)
+        .build()
+        .unwrap()
+});
 
 #[allow(dead_code)]
 struct State {
@@ -86,19 +94,19 @@ struct Args {
     #[clap(long, default_value_t = num_cpus::get())]
     jobs: usize,
 
-    /// Max Wasm file size (in bytes, default is 50 MB).
-    #[clap(long, default_value_t = 50 * 1024 * 1024)]
-    workload_max: usize,
+    /// Default file size limit (in MiB).
+    #[clap(long, default_value_t = 10)]
+    size_limit_default: usize,
 
-    /// Max Wasm file size for starred users (in bytes, default is 50 MB).
-    #[clap(long, default_value_t = 50 * 1024 * 1024)]
-    workload_max_starred: usize,
+    /// Starred file size limit (in MiB).
+    #[clap(long, default_value_t = 50)]
+    size_limit_starred: usize,
 
-    /// Job timeout (in minutes).
+    /// Default job timeout (in minutes).
     #[clap(long, default_value_t = 5)]
-    timeout: u64,
+    timeout_default: u64,
 
-    /// Job timeout for starred users (in minutes).
+    /// Starred job timeout (in minutes).
     #[clap(long, default_value_t = 30)]
     timeout_starred: u64,
 
@@ -120,21 +128,83 @@ struct Args {
     oidc_secret: Option<String>,
 }
 
+impl Args {
+    fn limits(&self) -> Limits {
+        Limits {
+            size_limit_default: self.size_limit_default,
+            size_limit_starred: self.size_limit_starred,
+            timeout_default: self.timeout_default,
+            timeout_starred: self.timeout_starred,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+struct Limits {
+    size_limit_default: usize,
+    size_limit_starred: usize,
+    timeout_default: u64,
+    timeout_starred: u64,
+}
+
+impl Limits {
+    // TODO: use auth0 for this instead of github directly: https://github.com/profianinc/benefice/issues/71
+    pub async fn decide(&self, claims: Option<&Claims>) -> Context {
+        #[derive(Debug, Deserialize)]
+        struct Repo {
+            pub full_name: String,
+        }
+
+        let user = claims
+            .and_then(|claims| claims.github())
+            .map(|s| s.to_owned());
+
+        let star = match user.as_ref() {
+            None => false,
+            Some(id) => {
+                match CLIENT
+                    .get(&format!("https://api.github.com/user/{id}/starred"))
+                    .send()
+                    .await
+                {
+                    Err(..) => false,
+                    Ok(response) => match response.json::<Vec<Repo>>().await {
+                        Ok(repos) => repos.iter().any(|repo| repo.full_name == ENARX_REPO),
+                        Err(..) => false,
+                    },
+                }
+            }
+        };
+
+        let size_limit = match star {
+            false => self.size_limit_default,
+            true => self.size_limit_starred,
+        };
+
+        let timeout = match star {
+            false => self.timeout_default,
+            true => self.timeout_starred,
+        };
+
+        Context {
+            size_limit,
+            timeout,
+            star,
+            user,
+        }
+    }
+}
+
+pub struct Context {
+    size_limit: usize,
+    timeout: u64,
+    star: bool,
+    user: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let Args {
-        addr,
-        url,
-        jobs,
-        workload_max,
-        workload_max_starred,
-        timeout,
-        timeout_starred,
-        command,
-        oidc_issuer,
-        oidc_client,
-        oidc_secret,
-    } = std::env::args()
+    let args = std::env::args()
         .try_fold(Vec::new(), |mut args, arg| {
             if let Some(path) = arg.strip_prefix('@') {
                 let conf = read(path).context(format!("failed to read config file at `{path}`"))?;
@@ -175,7 +245,9 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let oidc_secret = oidc_secret
+    let limits = args.limits();
+    let oidc_secret = args
+        .oidc_secret
         .map(|ref path| {
             read(path).with_context(|| format!("Failed to read OpenID Connect secret at `{path}`"))
         })
@@ -183,15 +255,16 @@ async fn main() -> anyhow::Result<()> {
         .map(String::from_utf8)
         .transpose()
         .context("OpenID Connect secret is not valid UTF-8")?;
-    let issuer_url = IssuerUrl::from_url(oidc_issuer);
+    let issuer_url = IssuerUrl::from_url(args.oidc_issuer);
     let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, client).await?;
     let openid_client = CoreClient::from_provider_metadata(
         provider_metadata,
-        ClientId::new(oidc_client),
+        ClientId::new(args.oidc_client),
         oidc_secret.map(ClientSecret::new),
     )
     .set_redirect_uri(RedirectUrl::from_url(
-        url.join("/authorized")
+        args.url
+            .join("/authorized")
             .with_context(|| "failed to append /authorized path to url")?,
     ))
     .set_auth_type(AuthType::RequestBody);
@@ -205,69 +278,22 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/err", post(uuid_err_post))
         .route(
             "/",
-            get(move |claims| {
-                root_get(
-                    claims,
-                    (workload_max, workload_max_starred),
-                    (timeout, timeout_starred),
-                )
-            })
-            .post(move |claims, mp| {
-                root_post(
-                    claims,
-                    mp,
-                    command,
-                    (workload_max, workload_max_starred),
-                    (timeout, timeout_starred),
-                    jobs,
-                )
-            }),
+            get(move |claims| root_get(claims, limits))
+                .post(move |claims, mp| root_post(claims, mp, args.command, limits, args.jobs)),
         )
         .layer(Extension(openid_client))
         .layer(TraceLayer::new_for_http());
 
-    Server::bind(&addr).serve(app.into_make_service()).await?;
+    Server::bind(&args.addr)
+        .serve(app.into_make_service())
+        .await?;
     Ok(())
 }
 
-async fn root_get(
-    claims: Option<Claims>,
-    workload_max: (usize, usize),
-    timeouts: (u64, u64),
-) -> impl IntoResponse {
-    let logged_in = claims.is_some();
-    let starred = if let Some(claims) = claims {
-        claims.has_starred(ENARX_REPO).await.unwrap_or_else(|e| {
-            let user = claims.subject().to_string();
-            error!("Failed to get stars for user {user}: {e}");
-            false
-        })
-    } else {
-        false
-    };
-
+async fn root_get(claims: Option<Claims>, limits: Limits) -> impl IntoResponse {
     HtmlTemplate(RootGetTemplate {
-        logged_in,
-        starred,
-        workload_upload_limits: (
-            // NOTE: This will only fail if sized are negative: https://docs.rs/humansize/latest/humansize/trait.FileSize.html#errors
-            workload_max
-                .0
-                .file_size(options::CONVENTIONAL)
-                .unwrap_or_else(|e| {
-                    error!("Failed to get human readable size string: {e}");
-                    "?".to_string()
-                }),
-            workload_max
-                .1
-                .file_size(options::CONVENTIONAL)
-                .unwrap_or_else(|e| {
-                    error!("Failed to get human readable size string: {e}");
-                    "?".to_string()
-                }),
-        ),
-        workload_timeouts: timeouts,
-        enarx_toml_template: enarx_config::CONFIG_TEMPLATE,
+        toml: enarx_config::CONFIG_TEMPLATE,
+        ctx: limits.decide(claims.as_ref()).await,
     })
 }
 
@@ -276,26 +302,11 @@ async fn root_post(
     claims: Result<Claims, ClaimsError>,
     mut multipart: Multipart,
     command: String,
-    workload_max: (usize, usize),
-    timeouts: (u64, u64),
+    limits: Limits,
     jobs: usize,
 ) -> impl IntoResponse {
     let claims = claims.map_err(|e| e.redirect_response().into_response())?;
-    let user = claims.subject().to_string();
-    let (wasm_max, timeout) = match claims.has_starred(ENARX_REPO).await {
-        Err(e) => {
-            error!("Failed to get stars for user {user}: {e}");
-            return Err(redirect::internal_error().into_response());
-        }
-        Ok(false) => {
-            debug!("{user} is NOT a starred user");
-            (workload_max.0, timeouts.0)
-        }
-        Ok(true) => {
-            debug!("{user} IS a starred user");
-            (workload_max.1, timeouts.1)
-        }
-    };
+    let ctx = limits.decide(Some(&claims)).await;
 
     // Detect too many jobs early.
     {
@@ -308,7 +319,7 @@ async fn root_post(
         for state in lock.values() {
             let lock = state.lock().await;
 
-            if lock.user == user {
+            if Some(&lock.user) == ctx.user.as_ref() {
                 // This user is already running a job.
                 return Err(redirect::workload_running().into_response());
             }
@@ -343,7 +354,7 @@ async fn root_post(
                     .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
                 {
                     len += chunk.len();
-                    if len > wasm_max {
+                    if len > ctx.size_limit * 1024 * 1024 {
                         return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
                     }
 
@@ -419,15 +430,14 @@ async fn root_post(
             exec,
             wasm,
             toml,
-            user,
+            user: ctx.user.unwrap(),
             token: claims.token().clone(),
         })),
     );
 
     tokio::spawn(async move {
         // Convert from minutes to seconds.
-        let timeout = timeout * 60;
-        sleep(Duration::from_secs(timeout)).await;
+        sleep(Duration::from_secs(ctx.timeout * 60)).await;
         OUT.write().await.remove(&uuid);
     });
 

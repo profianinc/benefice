@@ -20,6 +20,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
+use auth::WorkloadSession;
 use axum::extract::Multipart;
 use axum::extract::{Extension, Path};
 use axum::http::StatusCode;
@@ -34,7 +35,7 @@ use once_cell::sync::Lazy;
 use openidconnect::core::{CoreClient, CoreProviderMetadata};
 use openidconnect::ureq::http_client;
 use openidconnect::url::Url;
-use openidconnect::{AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
+use openidconnect::{AccessToken, AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
@@ -55,6 +56,7 @@ struct State {
     wasm: NamedTempFile,
     toml: NamedTempFile,
     user: String,
+    token: AccessToken,
 }
 
 static OUT: Lazy<RwLock<HashMap<Uuid, Arc<Mutex<State>>>>> =
@@ -417,6 +419,7 @@ async fn root_post(
             wasm,
             toml,
             user,
+            token: claims.token().clone(),
         })),
     );
 
@@ -449,7 +452,7 @@ async fn uuid_get(
 
 async fn uuid_out_post(
     Path(uuid): Path<String>,
-    claims: Claims,
+    session: WorkloadSession,
 ) -> Result<impl IntoResponse, StatusCode> {
     let mut buf = [0; 4096];
 
@@ -461,9 +464,7 @@ async fn uuid_out_post(
         .ok_or(StatusCode::NOT_FOUND)?
         .clone();
 
-    let user = claims.subject().to_string();
-
-    if exec.lock().await.user != user {
+    if exec.lock().await.user != session.user {
         return Err(StatusCode::NOT_FOUND);
     }
 
@@ -487,7 +488,7 @@ async fn uuid_out_post(
 
 async fn uuid_err_post(
     Path(uuid): Path<String>,
-    claims: Claims,
+    session: WorkloadSession,
 ) -> Result<impl IntoResponse, StatusCode> {
     let mut buf = [0; 4096];
 
@@ -499,9 +500,7 @@ async fn uuid_err_post(
         .ok_or(StatusCode::NOT_FOUND)?
         .clone();
 
-    let user = claims.subject().to_string();
-
-    if exec.lock().await.user != user {
+    if exec.lock().await.user != session.user {
         return Err(StatusCode::NOT_FOUND);
     }
 

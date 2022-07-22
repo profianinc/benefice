@@ -58,9 +58,47 @@ impl IntoResponse for ClaimsError {
     }
 }
 
-#[repr(transparent)]
+/// Allow users to authenticate using credentials cached in their last job.
+/// This is much faster and avoids rate limiting.
 #[derive(Clone, Debug)]
-pub struct Claims(CoreUserInfoClaims);
+pub struct WorkloadSession {
+    pub user: String,
+}
+
+#[async_trait]
+impl<B: Send> FromRequest<B> for WorkloadSession {
+    type Rejection = Response;
+
+    async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
+        let cookies = TypedHeader::<headers::Cookie>::from_request(req)
+            .await
+            .map_err(|e| {
+                debug!("failed to retrieve cookies from request: {e}");
+                StatusCode::UNAUTHORIZED.into_response()
+            })?;
+
+        let token = cookies
+            .get(COOKIE_NAME)
+            .ok_or_else(|| StatusCode::UNAUTHORIZED.into_response())?;
+
+        let lock = crate::OUT.read().await;
+
+        for state in lock.values() {
+            let lock = state.lock().await;
+
+            if lock.token.secret() == token {
+                return Ok(Self {
+                    user: lock.user.clone(),
+                });
+            }
+        }
+
+        Err(StatusCode::UNAUTHORIZED.into_response())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Claims(CoreUserInfoClaims, AccessToken);
 
 impl Claims {
     // TODO: use auth0 for this instead of github directly: https://github.com/profianinc/benefice/issues/71
@@ -75,6 +113,10 @@ impl Claims {
         }
 
         github::has_starred(user_id, repo_full_name)
+    }
+
+    pub fn token(&self) -> &AccessToken {
+        &self.1
     }
 }
 
@@ -108,7 +150,7 @@ impl<B: Send> FromRequest<B> for Claims {
         })?;
 
         let token = AccessToken::new(token.into());
-        let info_req = oidc.user_info(token, None).map_err(|e| {
+        let info_req = oidc.user_info(token.clone(), None).map_err(|e| {
             error!("failed to construct user info request: {e}");
             ClaimsError::InternalError("OpenID Connect client initialization failed".to_string())
         })?;
@@ -119,7 +161,7 @@ impl<B: Send> FromRequest<B> for Claims {
             ClaimsError::InvalidSession(format!("OpenID Connect credential validation failed: {e}"))
         })?;
         trace!("received user claims: {:?}", claims);
-        Ok(Self(claims))
+        Ok(Self(claims, token))
     }
 }
 

@@ -3,9 +3,18 @@ SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 SPDX-License-Identifier: AGPL-3.0-only
 -->
 <!DOCTYPE html>
-<html>
-
-<head>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Try Enarx: Confidential Computing + WebAssembly">
+    <title>Try Enarx</title>
+    <link rel="stylesheet" href="https://try.enarx.dev/css/all.min.css">
+    <link rel="stylesheet" href="https://try.enarx.dev/css/bulma-docs.min.css">
+    <link rel="canonical" href="https://try.enarx.dev/">
+    <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js" async=""></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Nunito:400,700" media="all">
     <style>
         #console {
             font-family: 'Courier New', Courier, monospace;
@@ -41,10 +50,406 @@ SPDX-License-Identifier: AGPL-3.0-only
             update('err');
         }
     </script>
-</head>
+  </head>
+  <body class="layout-default" onload="onLoad();">
+    <nav class="navbar is-light" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+            <a class="navbar-item" href="https://enarx.dev">
+                <img src="https://try.enarx.dev/img/enarx.png">
+            </a>
 
-<body onload="onLoad();">
-    <div id="console" />
-</body>
+            <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
+                data-target="navbarBasicExample">
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+            </a>
+        </div>
 
+        <div id="navbarBasicExample" class="navbar-menu">
+            <div class="navbar-start">
+            </div>
+
+            <div class="navbar-end">
+                <div class="navbar-item">
+                    <div class="buttons">
+                        <a class="button is-primary" id="auth" onclick="history.back()">
+                            Go back
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>    
+    <section class="bd-hello">
+      <div class="bd-heading">
+        <span class="icon has-text-danger is-size-2-widescreen">
+        <i class="fas fa-terminal"></i>
+        </span>
+        <h2 class="title has-text-black mb-0 is-size-2-widescreen">
+          <strong>Enarx</strong> demo
+        </h2>
+      </div>
+      <div class="container">
+        <div id="console">
+        </div>
+      </div>
+    </section>
+    <section class="bd-index-section" style="--bd-section-h: 229deg;">
+      <div class="bd-heading">
+        <span class="icon has-text-link is-size-2-widescreen">
+        <i class="fas fa-columns"></i>
+        </span>
+        <h2 class="title has-text-black mb-0 is-size-2-widescreen">
+          Select a <strong>platform</strong>
+        </h2>
+        <div class="subtitle mb-0 mt-0 is-size-4-widescreen">
+          Deploy to another <strong>platform</strong>
+        </div>
+      </div>
+      <div class="container">
+        <div class="columns">
+          <div class="column">
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <div class="bd-tw-content">
+                <a href="https://sgx.equinix.try.enarx.dev/" target="_blank"><img src="https://try.enarx.dev/img/equinix_intel.png" alt="Intel on Equinix"></a>
+              </div>
+            </article>
+          </div>
+          <div class="column">
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <div class="bd-tw-content">
+                <a href="https://snp.equinix.try.enarx.dev/" target="_blank"><img src="https://try.enarx.dev/img/equinix_amd.png" alt="AMD on Equinix"></a>
+              </div>
+            </article>
+          </div>
+          <div class="column">
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>Other platforms coming soon</strong>
+              </header>
+              <div class="bd-tw-content">
+                Alibaba, AWS, Azure, Google, IBM, ...
+              </div>
+            </article>
+          </div>
+        </div>
+    </div>
+    </section>
+    <section class="bd-index-section">
+      <div class="bd-heading">
+        <span class="icon has-text-success is-size-2-widescreen">
+        <i class="fas fa-graduation-cap"></i>
+        </span>
+        <h2 class="title has-text-black mb-0 is-size-2-widescreen">
+          Choose a <strong>language</strong>
+        </h2>
+        <div class="subtitle mb-0 mt-0 is-size-4-widescreen">
+          Learn how to use <strong>WebAssembly</strong> from these <strong>languages</strong>
+        </div>
+        <a class="button bd-fat-button is-success is-light is-size-4-widescreen" href="https://enarx.dev/docs/WebAssembly/Introduction" target="_blank">
+          <span class="icon has-text-success">
+          <i class="fas fa-graduation-cap"></i>
+          </span>
+          <span>
+          Visit the <strong>Wasm</strong> guide
+          </span>
+          </a>
+      </div>
+      <div class="container">
+        <div class="columns">
+          <div class="column">
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>C</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/C" target="_blank"><img src="https://try.enarx.dev/img/c_128x128.png" alt="C"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>Rust</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/Rust" target="_blank"><img src="https://try.enarx.dev/img/rust_128x128.png" alt="Rust"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>AssemblyScript</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/AssemblyScript" target="_blank"><img src="https://try.enarx.dev/img/assemblyscript_128x128.png" alt="AssemblyScript"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>Python</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/Python" target="_blank"><img src="https://try.enarx.dev/img/python_128x128.png" alt="Python"></a>
+              </div>
+            </article>
+          </div>
+          <div class="column">
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>C++</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/C++" target="_blank"><img src="https://try.enarx.dev/img/cpp_128x128.png" alt="C++"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>Golang</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/Golang" target="_blank"><img src="https://try.enarx.dev/img/golang_128x128.png" alt="Golang"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>JavaScript</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/JavaScript" target="_blank"><img src="https://try.enarx.dev/img/javascript_128x128.png" alt="JavaScript"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>Swift</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/Swift" target="_blank"><img src="https://try.enarx.dev/img/swift_128x128.png" alt="Swift"></a>
+              </div>
+            </article>
+          </div>
+          <div class="column">
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>.NET</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/dotnet" target="_blank"><img src="https://try.enarx.dev/img/csharp_128x128.png" alt=".NET"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>Ruby</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/Ruby" target="_blank"><img src="https://try.enarx.dev/img/ruby_128x128.png" alt="Ruby"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>TypeScript</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="https://enarx.dev/docs/webassembly/TypeScript" target="_blank"><img src="https://try.enarx.dev/img/typescript_128x128.png" alt="TypeScript"></a>
+              </div>
+            </article>
+            <article class="bd-tw bd-best-item bd-is-huge ">
+              <header class="bd-tw-header">
+                <strong>Java</strong>
+              </header>
+              <div class="bd-tw-content">
+                <a href="#"><img src="https://try.enarx.dev/img/java_128x128.png" alt="Java"></a>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="bd-index-section" style="--bd-section-h: 44deg;">
+      <div class="bd-heading">
+        <span class="icon has-text-expo is-size-2-widescreen">
+        <i class="fas fa-star"></i>
+        </span>  
+        <h2 class="title has-text-black mb-0 is-size-2-widescreen">
+          <strong>Wasm Gallery</strong>
+        </h2>
+        <div class="subtitle mb-0 mt-0 is-size-4-widescreen">
+          Explore <strong>demos</strong> and run on <strong>Enarx</strong>
+        </div>
+        <a class="button bd-fat-button is-expo is-light is-size-4-widescreen" href="https://github.com/enarx/codex" target="_blank">
+        <span class="icon has-text-expo">
+        <i class="fas fa-star"></i>
+        </span>
+        <span>
+        Visit the <strong>Codex</strong> repo
+        </span>
+        </a>
+      </div>
+      <div class="bd-screenshots">
+        <a class="bd-screenshot " href="https://github.com/enarx/GreenhouseMonitor" target="_blank">
+          <img src="https://try.enarx.dev/img/greenhouse.png" width="700" height="350" alt="GreenhouseMonitor">
+        </a>
+        <a class="bd-screenshot " href="https://github.com/enarx/cryptle" target="_blank">
+            <img src="https://try.enarx.dev/img/cryptle.png" width="700" height="350" alt="Cryptle">
+          </a>
+        <a class="bd-screenshot " href="https://github.com/enarx/codex/tree/main/Rust/tokio-http" target="_blank">
+          <img src="https://try.enarx.dev/img/tokio-minihttp.png" width="700" height="350" alt="Tokio Mini HTTP">
+        </a>
+        <a class="bd-screenshot " href="https://github.com/enarx/codex/tree/main/Rust/mio-echo-tcp" target="_blank">
+          <img src="https://try.enarx.dev/img/tokio-mio.png" width="700" height="350" alt="Mio TCP Echo Server">
+        </a>
+      </div>
+    </section>
+    <section class="bd-index-section" style="--bd-section-h: 330deg;">
+      <div class="container">
+        <header class="has-text-centered">
+          <h3 class="title is-3">
+            <a class="has-text-info" href="https://bulma.io/documentation/overview/start/">
+            Join our <strong>community</strong>
+            </a>
+          </h3>
+        </header>
+        <div class="hero-buttons">
+          <a class="button bd-fat-button is-info is-large" href="https://chat.enarx.dev" target="_blank">
+          <span class="icon">
+          <i class="fas fa-rocket"></i>
+          </span>
+          <span><strong>Chat</strong></span>
+          </a>
+          <a class="button bd-fat-button is-black is-large" href="https://github.com/enarx/enarx" target="_blank">
+          <span class="icon">
+          <i class="fab fa-github"></i>
+          </span>
+          <span>GitHub</span>
+          </a>
+        </div>
+      </div>
+    </section>
+    <footer class="footer">
+      <div class="container">
+        <div class="bd-footer-links">
+          <div class="columns">
+            <div class="column is-3">
+              <p class="bd-footer-link-title">
+                <a href="https://enarx.dev">Documentation</a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/docs/Start/Introduction">
+                Getting Started
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/docs/QuickStart">
+                Installation Guide
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/docs/Running/Publish">
+                Running Enarx Guide
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/docs/WebAssembly/Introduction">
+                WebAssembly Guide
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/docs/Contributing/Introduction">
+                Contributing Guide
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/docs/Fellowship/Introduction/">
+                Fellowship Guide
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/docs/Technical/Introduction">
+                Technical Overview
+                </a>
+              </p>
+            </div>
+            <div class="column is-3">
+              <p class="bd-footer-link-title">
+                <a href="https://enarx.dev/resources">Resources</a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/resources">
+                All Resources
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/resources/tags/enarxs-blog">
+                Blog Posts
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/resources/tags/article">
+                Articles
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/resources/tags/release">
+                Releases
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/resources/tags/event">
+                Events
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/resources/tags/webinar">
+                Webinars
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/resources/tags/meeting">
+                Meetings
+                </a>
+              </p>
+            </div>
+            <div class="column is-6">
+              <p class="bd-footer-link-title">
+                <a href="https://enarx.dev">Community</a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://github.com/enarx/enarx">
+                GitHub
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://chat.enarx.dev/">
+                Chat
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://blog.enarx.dev/">
+                Blog
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://twitter.com/enarxproject">
+                Twitter
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/events">
+                Upcoming Events
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/webinars">
+                Upcoming Webinars
+                </a>
+              </p>
+              <p class="bd-footer-link">
+                <a href="https://enarx.dev/meetings">
+                Upcoming Meetings
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </body>
 </html>

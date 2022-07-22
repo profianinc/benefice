@@ -13,7 +13,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::{async_trait, TypedHeader};
 use openidconnect::core::{CoreClient, CoreResponseType, CoreUserInfoClaims};
-use openidconnect::ureq::http_client;
+use openidconnect::reqwest::async_http_client;
 use openidconnect::{
     AccessToken, AuthenticationFlow, AuthorizationCode, CsrfToken, Nonce, OAuth2TokenResponse,
 };
@@ -102,7 +102,7 @@ pub struct Claims(CoreUserInfoClaims, AccessToken);
 
 impl Claims {
     // TODO: use auth0 for this instead of github directly: https://github.com/profianinc/benefice/issues/71
-    pub fn has_starred(&self, repo_full_name: &str) -> anyhow::Result<bool> {
+    pub async fn has_starred(&self, repo_full_name: &str) -> anyhow::Result<bool> {
         let (user_type, user_id) = self
             .subject()
             .split_once('|')
@@ -112,7 +112,7 @@ impl Claims {
             bail!("Cannot get the stars of a non-github user");
         }
 
-        github::has_starred(user_id, repo_full_name)
+        github::has_starred(user_id, repo_full_name).await
     }
 
     pub fn token(&self) -> &AccessToken {
@@ -156,10 +156,15 @@ impl<B: Send> FromRequest<B> for Claims {
         })?;
 
         trace!("request user info");
-        let claims = info_req.request(http_client).map_err(|e| {
-            debug!("failed to request user info: {e}");
-            ClaimsError::InvalidSession(format!("OpenID Connect credential validation failed: {e}"))
-        })?;
+        let claims = info_req
+            .request_async(async_http_client)
+            .await
+            .map_err(|e| {
+                debug!("failed to request user info: {e}");
+                ClaimsError::InvalidSession(format!(
+                    "OpenID Connect credential validation failed: {e}"
+                ))
+            })?;
         trace!("received user claims: {:?}", claims);
         Ok(Self(claims, token))
     }
@@ -200,7 +205,8 @@ pub async fn authorized(
 ) -> Result<(HeaderMap, Redirect), (StatusCode, String)> {
     let token_response = client
         .exchange_code(AuthorizationCode::new(query.code.clone()))
-        .request(http_client)
+        .request_async(async_http_client)
+        .await
         .map_err(|e| {
             error!("failed to exchange code for auth token: {e}");
             (

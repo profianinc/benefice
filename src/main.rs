@@ -33,7 +33,7 @@ use clap::Parser;
 use humansize::{file_size_opts as options, FileSize};
 use once_cell::sync::Lazy;
 use openidconnect::core::{CoreClient, CoreProviderMetadata};
-use openidconnect::ureq::http_client;
+use openidconnect::reqwest::async_http_client as client;
 use openidconnect::url::Url;
 use openidconnect::{AccessToken, AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
 use tempfile::NamedTempFile;
@@ -184,7 +184,7 @@ async fn main() -> anyhow::Result<()> {
         .transpose()
         .context("OpenID Connect secret is not valid UTF-8")?;
     let issuer_url = IssuerUrl::from_url(oidc_issuer);
-    let provider_metadata = CoreProviderMetadata::discover(&issuer_url, http_client)?;
+    let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, client).await?;
     let openid_client = CoreClient::from_provider_metadata(
         provider_metadata,
         ClientId::new(oidc_client),
@@ -236,15 +236,15 @@ async fn root_get(
     timeouts: (u64, u64),
 ) -> impl IntoResponse {
     let logged_in = claims.is_some();
-    let starred = claims
-        .map(|claims| {
-            claims.has_starred(ENARX_REPO).unwrap_or_else(|e| {
-                let user = claims.subject().to_string();
-                error!("Failed to get stars for user {user}: {e}");
-                false
-            })
+    let starred = if let Some(claims) = claims {
+        claims.has_starred(ENARX_REPO).await.unwrap_or_else(|e| {
+            let user = claims.subject().to_string();
+            error!("Failed to get stars for user {user}: {e}");
+            false
         })
-        .unwrap_or(false);
+    } else {
+        false
+    };
 
     HtmlTemplate(RootGetTemplate {
         logged_in,
@@ -282,7 +282,7 @@ async fn root_post(
 ) -> impl IntoResponse {
     let claims = claims.map_err(|e| e.redirect_response().into_response())?;
     let user = claims.subject().to_string();
-    let (wasm_max, timeout) = match claims.has_starred(ENARX_REPO) {
+    let (wasm_max, timeout) = match claims.has_starred(ENARX_REPO).await {
         Err(e) => {
             error!("Failed to get stars for user {user}: {e}");
             return Err(redirect::internal_error().into_response());

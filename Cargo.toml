@@ -14,9 +14,9 @@ uuid = { version = "*", features = ["v4"] }
 once_cell = "1.12.0"
 tempfile = "3.3.0"
 anyhow = { version = "1.0.57", default-features = false, features = ["std"] }
-ureq = { version = "2.5.0", default-features = false }
+reqwest = { version = "0.11.11", default-features = false, features = ["default-tls", "json"] }
 clap = { version = "3.2.3", default-features = false, features = ["derive", "std"] }
-openidconnect = { version = "2.3.1", default-features = false, features = ["ureq"] }
+openidconnect = { version = "2.3.1", default-features = false, features = ["rustls-tls", "reqwest"] }
 toml = { version = "0.5.9", default-features = false }
 num_cpus = "1.13.1"
 serde = { version = "1.0.136", default-features = false }

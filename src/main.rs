@@ -206,9 +206,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/kill", get(uuid_kill_get))
         .route(
             "/",
-            get(move |claims| {
+            get(move |claims, session| {
                 root_get(
                     claims,
+                    session,
                     (workload_max, workload_max_starred),
                     (timeout, timeout_starred),
                 )
@@ -233,9 +234,14 @@ async fn main() -> anyhow::Result<()> {
 
 async fn root_get(
     claims: Option<Claims>,
+    session: Option<WorkloadSession>,
     workload_max: (usize, usize),
     timeouts: (u64, u64),
 ) -> impl IntoResponse {
+    if let Some(session) = session {
+        return redirect::workload(&session.workload_uuid).into_response();
+    }
+
     let logged_in = claims.is_some();
     let starred = claims
         .map(|claims| {
@@ -270,6 +276,7 @@ async fn root_get(
         workload_timeouts: timeouts,
         enarx_toml_template: enarx_config::CONFIG_TEMPLATE,
     })
+    .into_response()
 }
 
 // TODO: create tests for endpoints: #38

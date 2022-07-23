@@ -19,6 +19,7 @@ use openidconnect::{
 };
 use serde::Deserialize;
 use tracing::{debug, error, trace};
+use uuid::Uuid;
 
 const COOKIE_NAME: &str = "SESSION";
 
@@ -63,6 +64,7 @@ impl IntoResponse for ClaimsError {
 #[derive(Clone, Debug)]
 pub struct WorkloadSession {
     pub user: String,
+    pub workload_uuid: Uuid,
 }
 
 #[async_trait]
@@ -83,12 +85,13 @@ impl<B: Send> FromRequest<B> for WorkloadSession {
 
         let lock = crate::OUT.read().await;
 
-        for state in lock.values() {
+        for (uuid, state) in &*lock {
             let lock = state.lock().await;
 
             if lock.token.secret() == token {
                 return Ok(Self {
                     user: lock.user.clone(),
+                    workload_uuid: *uuid,
                 });
             }
         }

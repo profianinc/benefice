@@ -107,7 +107,7 @@ struct Args {
     timeout_default: u64,
 
     /// Starred job timeout (in minutes).
-    #[clap(long, default_value_t = 30)]
+    #[clap(long, default_value_t = 15)]
     timeout_starred: u64,
 
     /// Command to execute, normally path to `enarx` binary.

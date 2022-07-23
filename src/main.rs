@@ -449,6 +449,14 @@ async fn root_post(
         // Convert from minutes to seconds.
         let timeout = timeout * 60;
         sleep(Duration::from_secs(timeout)).await;
+
+        // Stop running the workload
+        if let Some(state) = OUT.write().await.get(&uuid) {
+            let _ = state.lock().await.exec.kill().await;
+        }
+
+        // Remove the workload state completely if it still exists
+        sleep(Duration::from_secs(5 * 60)).await;
         OUT.write().await.remove(&uuid);
     });
 

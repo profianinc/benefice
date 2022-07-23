@@ -254,7 +254,8 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?
         .map(String::from_utf8)
         .transpose()
-        .context("OpenID Connect secret is not valid UTF-8")?;
+        .context("OpenID Connect secret is not valid UTF-8")?
+        .map(|secret| secret.trim().to_string());
     let issuer_url = IssuerUrl::from_url(args.oidc_issuer);
     let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, client).await?;
     let openid_client = CoreClient::from_provider_metadata(

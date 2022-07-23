@@ -6,10 +6,12 @@
 
 mod auth;
 mod redirect;
+mod secret;
 mod templates;
 
 use crate::auth::{Claims, ClaimsError};
 use crate::templates::{HtmlTemplate, RootGetTemplate, UuidGetTemplate};
+use secret::SecretFile;
 
 use std::collections::HashMap;
 use std::fs::read;
@@ -34,6 +36,7 @@ use openidconnect::core::{CoreClient, CoreProviderMetadata};
 use openidconnect::reqwest::async_http_client as client;
 use openidconnect::url::Url;
 use openidconnect::{AccessToken, AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
+
 use serde::Deserialize;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
@@ -125,7 +128,7 @@ struct Args {
 
     /// Path to a file containing OpenID Connect secret.
     #[clap(long)]
-    oidc_secret: Option<String>,
+    oidc_secret: Option<SecretFile>,
 }
 
 impl Args {
@@ -246,22 +249,12 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let limits = args.limits();
-    let oidc_secret = args
-        .oidc_secret
-        .map(|ref path| {
-            read(path).with_context(|| format!("Failed to read OpenID Connect secret at `{path}`"))
-        })
-        .transpose()?
-        .map(String::from_utf8)
-        .transpose()
-        .context("OpenID Connect secret is not valid UTF-8")?
-        .map(|secret| secret.trim().to_string());
     let issuer_url = IssuerUrl::from_url(args.oidc_issuer);
     let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, client).await?;
     let openid_client = CoreClient::from_provider_metadata(
         provider_metadata,
         ClientId::new(args.oidc_client),
-        oidc_secret.map(ClientSecret::new),
+        args.oidc_secret.map(|s| ClientSecret::new(s.into())),
     )
     .set_redirect_uri(RedirectUrl::from_url(
         args.url

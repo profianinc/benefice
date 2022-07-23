@@ -3,7 +3,7 @@
 
 use std::ops::Deref;
 
-use crate::{github, redirect};
+use crate::{github, redirect, OUT};
 
 use anyhow::{anyhow, bail};
 use axum::extract::{Extension, FromRequest, Query, RequestParts};
@@ -83,7 +83,7 @@ impl<B: Send> FromRequest<B> for WorkloadSession {
             .get(COOKIE_NAME)
             .ok_or_else(|| StatusCode::UNAUTHORIZED.into_response())?;
 
-        let lock = crate::OUT.read().await;
+        let lock = OUT.read().await;
 
         for (uuid, state) in &*lock {
             let lock = state.lock().await;
@@ -181,7 +181,13 @@ pub async fn login(Extension(client): Extension<CoreClient>) -> impl IntoRespons
 }
 
 // TODO: invalidate the session on the remote server properly
-pub async fn logout() -> Result<(HeaderMap, Redirect), (StatusCode, String)> {
+pub async fn logout(
+    session: Option<WorkloadSession>,
+) -> Result<(HeaderMap, Redirect), (StatusCode, String)> {
+    if let Some(session) = session {
+        OUT.write().await.remove(&session.workload_uuid);
+    }
+
     let cookie = format!("{COOKIE_NAME}=; Path=/; Max-Age=0");
     let mut headers = HeaderMap::new();
     headers.insert(

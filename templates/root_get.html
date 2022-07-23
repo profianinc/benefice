@@ -141,12 +141,6 @@ SPDX-License-Identifier: AGPL-3.0-only
 
         // SECURITY: Do not put query parameter values in messageHTML.
         switch (messageCode) {
-            case 'no_session': {
-                if (!authenticated) {
-                    messageHTML.push("It looks like you have been logged out.");
-                }
-                break;
-            }
             case 'workload_not_found': {
                 if (authenticated) {
                     messageHTML.push("The workload was not found or you are not permitted to view it.");

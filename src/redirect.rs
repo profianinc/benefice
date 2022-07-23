@@ -5,7 +5,7 @@ use axum::response::Redirect;
 
 /// The user has no session and has likely been logged out.
 pub fn no_session() -> Redirect {
-    Redirect::to("/?message=no_session")
+    Redirect::to("/login")
 }
 
 /// A user has insufficient permissions or a workload does not exist.

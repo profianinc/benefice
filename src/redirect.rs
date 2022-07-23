@@ -3,6 +3,11 @@
 
 use axum::response::Redirect;
 
+/// Redirect the user to the home page with no warnings or errors.
+pub fn home() -> Redirect {
+    Redirect::to("/")
+}
+
 /// The user has no session and has likely been logged out.
 pub fn no_session() -> Redirect {
     Redirect::to("/?message=no_session")
@@ -18,9 +23,9 @@ pub fn too_many_workloads() -> Redirect {
     Redirect::to("/?message=too_many_workloads")
 }
 
-/// A user already has a running workload.
-pub fn workload_running() -> Redirect {
-    Redirect::to("/?message=workload_running")
+/// The user has successfully terminated a workload.
+pub fn workload_killed() -> Redirect {
+    Redirect::to("/?message=workload_killed")
 }
 
 /// An internal error occurred.

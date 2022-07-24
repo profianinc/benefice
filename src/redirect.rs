@@ -2,10 +2,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use axum::response::Redirect;
+use uuid::Uuid;
 
 /// Redirect the user to the home page with no warnings or errors.
 pub fn home() -> Redirect {
     Redirect::to("/")
+}
+
+/// Redirect the user to a workload that is currently running.
+pub fn workload(uuid: &Uuid) -> Redirect {
+    Redirect::to(&format!("/{}/", uuid))
 }
 
 /// The user has no session and has likely been logged out.

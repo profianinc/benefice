@@ -280,7 +280,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/kill", get(uuid_kill_get))
         .route(
             "/",
-            get(move |claims| root_get(claims, limits))
+            get(move |claims, session| root_get(claims, session, limits))
                 .post(move |claims, mp| root_post(claims, mp, args.command, limits, args.jobs)),
         )
         .layer(Extension(openid_client))
@@ -292,11 +292,20 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_get(claims: Option<Claims>, limits: Limits) -> impl IntoResponse {
+async fn root_get(
+    claims: Option<Claims>,
+    session: Option<WorkloadSession>,
+    limits: Limits,
+) -> impl IntoResponse {
+    if let Some(session) = session {
+        return redirect::workload(&session.workload_uuid).into_response();
+    }
+
     HtmlTemplate(RootGetTemplate {
         toml: enarx_config::CONFIG_TEMPLATE,
         ctx: limits.decide(claims.as_ref()).await,
     })
+    .into_response()
 }
 
 // TODO: create tests for endpoints: #38

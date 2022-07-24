@@ -159,8 +159,10 @@ SPDX-License-Identifier: AGPL-3.0-only
                 messageHTML.push("Too many workloads are running on this server! Please try again later.");
                 break;
             }
-            case 'workload_running': {
-                messageHTML.push("You already have a workload running.");
+            case 'workload_killed': {
+                // Users probably don't care if the workload was killed.
+                // This is just here for testing.
+                // messageHTML.push("Workload killed successfully.");
                 break;
             }
             case 'internal_error': {

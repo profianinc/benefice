@@ -23,7 +23,7 @@ use auth::WorkloadSession;
 use axum::extract::Multipart;
 use axum::extract::{Extension, Path};
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::{Router, Server};
 
@@ -277,6 +277,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/:uuid/", get(uuid_get))
         .route("/:uuid/out", post(uuid_out_post))
         .route("/:uuid/err", post(uuid_err_post))
+        .route("/:uuid/kill", get(uuid_kill_get))
         .route(
             "/",
             get(move |claims| root_get(claims, limits))
@@ -311,18 +312,29 @@ async fn root_post(
 
     // Detect too many jobs early.
     {
+        let mut jobs_to_kill = vec![];
+
         let lock = OUT.read().await;
 
         if lock.len() >= jobs {
             return Err(redirect::too_many_workloads().into_response());
         }
 
-        for state in lock.values() {
+        for (key, state) in &*lock {
             let lock = state.lock().await;
 
-            if Some(&lock.user) == ctx.user.as_ref() {
-                // This user is already running a job.
-                return Err(redirect::workload_running().into_response());
+            if lock.user == *ctx.user.as_ref().unwrap() {
+                jobs_to_kill.push(*key);
+            }
+        }
+
+        {
+            let mut lock = OUT.write().await;
+
+            if !jobs_to_kill.is_empty() {
+                for uuid in jobs_to_kill {
+                    lock.remove(&uuid);
+                }
             }
         }
     }
@@ -532,4 +544,28 @@ async fn uuid_err_post(
         Ok(Ok(size)) => Ok(buf[..size].to_vec()),
         Err(..) => Ok(Vec::new()),
     }
+}
+
+async fn uuid_kill_get(
+    Path(uuid): Path<String>,
+    session: Option<WorkloadSession>,
+) -> Result<Redirect, Redirect> {
+    let session = session.ok_or_else(redirect::home)?;
+    let uuid: Uuid = uuid.parse().map_err(|_| redirect::home())?;
+    let exec = OUT
+        .read()
+        .await
+        .get(&uuid)
+        .ok_or_else(redirect::home)?
+        .clone();
+
+    if exec.lock().await.user != session.user {
+        return Err(redirect::home());
+    }
+
+    OUT.write()
+        .await
+        .remove(&uuid)
+        .map(|_| redirect::workload_killed())
+        .ok_or_else(redirect::workload_not_found)
 }

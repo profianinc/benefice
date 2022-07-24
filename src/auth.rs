@@ -3,7 +3,7 @@
 
 use std::ops::Deref;
 
-use crate::redirect;
+use crate::{redirect, OUT};
 
 use axum::extract::{Extension, FromRequest, Query, RequestParts};
 use axum::headers;
@@ -18,6 +18,7 @@ use openidconnect::{
 };
 use serde::Deserialize;
 use tracing::{debug, error, trace};
+use uuid::Uuid;
 
 const COOKIE_NAME: &str = "SESSION";
 
@@ -62,6 +63,7 @@ impl IntoResponse for ClaimsError {
 #[derive(Clone, Debug)]
 pub struct WorkloadSession {
     pub user: String,
+    pub workload_uuid: Uuid,
 }
 
 #[async_trait]
@@ -80,14 +82,15 @@ impl<B: Send> FromRequest<B> for WorkloadSession {
             .get(COOKIE_NAME)
             .ok_or_else(|| StatusCode::UNAUTHORIZED.into_response())?;
 
-        let lock = crate::OUT.read().await;
+        let lock = OUT.read().await;
 
-        for state in lock.values() {
+        for (uuid, state) in &*lock {
             let lock = state.lock().await;
 
             if lock.token.secret() == token {
                 return Ok(Self {
                     user: lock.user.clone(),
+                    workload_uuid: *uuid,
                 });
             }
         }
@@ -178,7 +181,13 @@ pub async fn login(Extension(client): Extension<CoreClient>) -> impl IntoRespons
 }
 
 // TODO: invalidate the session on the remote server properly
-pub async fn logout() -> Result<(HeaderMap, Redirect), (StatusCode, String)> {
+pub async fn logout(
+    session: Option<WorkloadSession>,
+) -> Result<(HeaderMap, Redirect), (StatusCode, String)> {
+    if let Some(session) = session {
+        OUT.write().await.remove(&session.workload_uuid);
+    }
+
     let cookie = format!("{COOKIE_NAME}=; Path=/; Max-Age=0");
     let mut headers = HeaderMap::new();
     headers.insert(

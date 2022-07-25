@@ -323,17 +323,19 @@ async fn root_post(
     {
         let mut jobs_to_kill = vec![];
 
-        let lock = OUT.read().await;
+        {
+            let lock = OUT.read().await;
 
-        if lock.len() >= jobs {
-            return Err(redirect::too_many_workloads().into_response());
-        }
+            if lock.len() >= jobs {
+                return Err(redirect::too_many_workloads().into_response());
+            }
 
-        for (key, state) in &*lock {
-            let lock = state.lock().await;
+            for (key, state) in &*lock {
+                let lock = state.lock().await;
 
-            if lock.user == *ctx.user.as_ref().unwrap() {
-                jobs_to_kill.push(*key);
+                if lock.user == *ctx.user.as_ref().unwrap() {
+                    jobs_to_kill.push(*key);
+                }
             }
         }
 

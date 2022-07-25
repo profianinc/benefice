@@ -484,7 +484,7 @@ async fn uuid_get(
     let lock = OUT.read().await;
     let exec = lock.get(&uuid).ok_or_else(redirect::workload_not_found)?;
     let claims = claims.map_err(|e| e.redirect_response())?;
-    let user = claims.subject().to_string();
+    let user = claims.github().unwrap_or_default();
 
     if exec.lock().await.user != user {
         return Err(redirect::workload_not_found());

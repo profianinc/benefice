@@ -5,74 +5,40 @@
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
 mod auth;
-mod redirect;
+mod jobs;
+mod reference;
 mod secret;
 mod templates;
 
-use crate::auth::{Claims, ClaimsError};
-use crate::templates::{HtmlTemplate, RootGetTemplate, UuidGetTemplate};
-use secret::SecretFile;
+use crate::reference::Ref;
+use crate::templates::{HtmlTemplate, IdxTemplate, JobTemplate};
 
-use std::collections::HashMap;
 use std::fs::read;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::process::Stdio;
-use std::sync::Arc;
 use std::time::Duration;
 
-use auth::WorkloadSession;
 use axum::extract::Multipart;
-use axum::extract::{Extension, Path};
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Redirect};
+use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Router, Server};
 
 use anyhow::{bail, Context as _};
 use clap::Parser;
-use once_cell::sync::Lazy;
-use openidconnect::core::{CoreClient, CoreProviderMetadata};
-use openidconnect::reqwest::async_http_client as client;
-use openidconnect::url::Url;
-use openidconnect::{AccessToken, AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
-
-use serde::Deserialize;
-use tempfile::NamedTempFile;
-use tokio::io::AsyncReadExt;
-use tokio::process::{Child, Command};
-use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::error;
+use tracing::{debug, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use uuid::Uuid;
 
-const ENARX_REPO: &str = "enarx/enarx";
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
-static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
-    const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-
-    reqwest::ClientBuilder::new()
-        .user_agent(USER_AGENT)
-        .build()
-        .unwrap()
-});
-
-#[allow(dead_code)]
-struct State {
-    exec: Child,
-    wasm: NamedTempFile,
-    toml: NamedTempFile,
-    user: String,
-    token: AccessToken,
+#[derive(Debug, Default)]
+struct Data {
+    job: Option<jobs::Job>,
 }
-
-static OUT: Lazy<RwLock<HashMap<Uuid, Arc<Mutex<State>>>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
 
 /// Demo workload executor.
 ///
@@ -91,7 +57,7 @@ struct Args {
     /// Externally accessible root URL.
     /// For example: https://benefice.example.com
     #[clap(long)]
-    url: Url,
+    url: auth::Url,
 
     /// Maximum jobs.
     #[clap(long, default_value_t = num_cpus::get())]
@@ -105,12 +71,12 @@ struct Args {
     #[clap(long, default_value_t = 50)]
     size_limit_starred: usize,
 
-    /// Default job timeout (in minutes).
-    #[clap(long, default_value_t = 5)]
+    /// Default job timeout (in seconds).
+    #[clap(long, default_value_t = 5 * 60)]
     timeout_default: u64,
 
-    /// Starred job timeout (in minutes).
-    #[clap(long, default_value_t = 15)]
+    /// Starred job timeout (in seconds).
+    #[clap(long, default_value_t = 15 * 60)]
     timeout_starred: u64,
 
     /// Command to execute, normally path to `enarx` binary.
@@ -120,7 +86,7 @@ struct Args {
 
     /// OpenID Connect issuer URL.
     #[clap(long, default_value = "https://auth.profian.com/")]
-    oidc_issuer: Url,
+    oidc_issuer: auth::Url,
 
     /// OpenID Connect client ID.
     #[clap(long)]
@@ -128,17 +94,33 @@ struct Args {
 
     /// Path to a file containing OpenID Connect secret.
     #[clap(long)]
-    oidc_secret: Option<SecretFile>,
+    oidc_secret: Option<secret::SecretFile>,
 }
 
 impl Args {
-    fn limits(&self) -> Limits {
-        Limits {
+    fn split(self) -> (Limits, auth::Oidc, Other) {
+        let limits = Limits {
             size_limit_default: self.size_limit_default,
             size_limit_starred: self.size_limit_starred,
-            timeout_default: self.timeout_default,
-            timeout_starred: self.timeout_starred,
-        }
+            timeout_default: Duration::from_secs(self.timeout_default),
+            timeout_starred: Duration::from_secs(self.timeout_starred),
+        };
+
+        let oidc = auth::Oidc {
+            server: self.url,
+            issuer: self.oidc_issuer,
+            client: self.oidc_client,
+            secret: self.oidc_secret.map(|sf| sf.into()),
+            ttl: Duration::from_secs(24 * 60 * 60),
+        };
+
+        let other = Other {
+            addr: self.addr,
+            jobs: self.jobs,
+            cmd: self.command,
+        };
+
+        (limits, oidc, other)
     }
 }
 
@@ -146,68 +128,36 @@ impl Args {
 struct Limits {
     size_limit_default: usize,
     size_limit_starred: usize,
-    timeout_default: u64,
-    timeout_starred: u64,
+    timeout_default: Duration,
+    timeout_starred: Duration,
 }
 
 impl Limits {
-    // TODO: use auth0 for this instead of github directly: https://github.com/profianinc/benefice/issues/71
-    pub async fn decide(&self, claims: Option<&Claims>) -> Context {
-        #[derive(Debug, Deserialize)]
-        struct Repo {
-            pub full_name: String,
-        }
-
-        let user = claims
-            .and_then(|claims| claims.github())
-            .map(|s| s.to_owned());
-
-        let star = match user.as_ref() {
-            None => false,
-            Some(id) => {
-                match CLIENT
-                    .get(&format!("https://api.github.com/user/{id}/starred"))
-                    .send()
-                    .await
-                {
-                    Err(..) => false,
-                    Ok(response) => match response.json::<Vec<Repo>>().await {
-                        Ok(repos) => repos.iter().any(|repo| repo.full_name == ENARX_REPO),
-                        Err(..) => false,
-                    },
-                }
-            }
-        };
-
-        let size_limit = match star {
+    pub fn decide(&self, star: bool) -> (Duration, usize) {
+        let size = match star {
             false => self.size_limit_default,
             true => self.size_limit_starred,
         };
 
-        let timeout = match star {
+        let ttl = match star {
             false => self.timeout_default,
             true => self.timeout_starred,
         };
 
-        Context {
-            size_limit,
-            timeout,
-            star,
-            user,
-        }
+        (ttl, size)
     }
 }
 
-pub struct Context {
-    size_limit: usize,
-    timeout: u64,
-    star: bool,
-    user: Option<String>,
+#[derive(Clone, Debug)]
+struct Other {
+    addr: SocketAddr,
+    jobs: usize,
+    cmd: String,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args = std::env::args()
+    let (limits, oidc, other) = std::env::args()
         .try_fold(Vec::new(), |mut args, arg| {
             if let Some(path) = arg.strip_prefix('@') {
                 let conf = read(path).context(format!("failed to read config file at `{path}`"))?;
@@ -238,7 +188,8 @@ async fn main() -> anyhow::Result<()> {
             Ok(args)
         })
         .map(Args::parse_from)
-        .context("Failed to parse arguments")?;
+        .context("Failed to parse arguments")?
+        .split();
 
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
@@ -248,99 +199,66 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let limits = args.limits();
-    let issuer_url = IssuerUrl::from_url(args.oidc_issuer);
-    let provider_metadata = CoreProviderMetadata::discover_async(issuer_url, client).await?;
-    let openid_client = CoreClient::from_provider_metadata(
-        provider_metadata,
-        ClientId::new(args.oidc_client),
-        args.oidc_secret.map(|s| ClientSecret::new(s.into())),
-    )
-    .set_redirect_uri(RedirectUrl::from_url(
-        args.url
-            .join("/authorized")
-            .with_context(|| "failed to append /authorized path to url")?,
-    ))
-    .set_auth_type(AuthType::RequestBody);
-
     let app = Router::new()
-        .route("/login", get(auth::login))
-        .route("/logout", get(auth::logout))
-        .route("/authorized", get(auth::authorized))
-        .route("/:uuid/", get(uuid_get))
-        .route("/:uuid/out", post(uuid_out_post))
-        .route("/:uuid/err", post(uuid_err_post))
-        .route("/:uuid/kill", get(uuid_kill_get))
+        .route(
+            "/out",
+            post(move |user| reader(user, jobs::Standard::Output)),
+        )
+        .route(
+            "/err",
+            post(move |user| reader(user, jobs::Standard::Error)),
+        )
         .route(
             "/",
-            get(move |claims, session| root_get(claims, session, limits))
-                .post(move |claims, mp| root_post(claims, mp, args.command, limits, args.jobs)),
-        )
-        .layer(Extension(openid_client))
-        .layer(TraceLayer::new_for_http());
+            get(move |user| root_get(user, limits))
+                .post(move |user, mp| root_post(user, mp, other.cmd, limits, other.jobs))
+                .delete(root_delete),
+        );
 
-    Server::bind(&args.addr)
-        .serve(app.into_make_service())
+    let app = oidc.routes::<Data>(app).await?;
+
+    Server::bind(&other.addr)
+        .serve(app.layer(TraceLayer::new_for_http()).into_make_service())
         .await?;
     Ok(())
 }
 
-async fn root_get(
-    claims: Option<Claims>,
-    session: Option<WorkloadSession>,
-    limits: Limits,
-) -> impl IntoResponse {
-    if let Some(session) = session {
-        return redirect::workload(&session.workload_uuid).into_response();
-    }
+async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl IntoResponse {
+    let (user, star) = match user {
+        None => (false, false),
+        Some(user) => {
+            if user.read().await.data.job.is_some() {
+                return HtmlTemplate(JobTemplate).into_response();
+            }
 
-    HtmlTemplate(RootGetTemplate {
+            (true, user.read().await.is_starred("enarx/enarx").await)
+        }
+    };
+
+    let (ttl, size) = limits.decide(star);
+
+    let tmpl = IdxTemplate {
         toml: enarx_config::CONFIG_TEMPLATE,
-        ctx: limits.decide(claims.as_ref()).await,
-    })
-    .into_response()
+        user,
+        star,
+        size,
+        ttl: ttl.as_secs(),
+    };
+
+    HtmlTemplate(tmpl).into_response()
 }
 
 // TODO: create tests for endpoints: #38
 async fn root_post(
-    claims: Result<Claims, ClaimsError>,
+    user: Ref<auth::User<Data>>,
     mut multipart: Multipart,
     command: String,
     limits: Limits,
     jobs: usize,
 ) -> impl IntoResponse {
-    let claims = claims.map_err(|e| e.redirect_response().into_response())?;
-    let ctx = limits.decide(Some(&claims)).await;
-
-    // Detect too many jobs early.
-    {
-        let mut jobs_to_kill = vec![];
-
-        {
-            let lock = OUT.read().await;
-
-            if lock.len() >= jobs {
-                return Err(redirect::too_many_workloads().into_response());
-            }
-
-            for (key, state) in &*lock {
-                let lock = state.lock().await;
-
-                if lock.user == *ctx.user.as_ref().unwrap() {
-                    jobs_to_kill.push(*key);
-                }
-            }
-        }
-
-        {
-            let mut lock = OUT.write().await;
-
-            if !jobs_to_kill.is_empty() {
-                for uuid in jobs_to_kill {
-                    lock.remove(&uuid);
-                }
-            }
-        }
+    let (ttl, size) = limits.decide(user.read().await.is_starred("enarx/enarx").await);
+    if user.read().await.data.job.is_some() || jobs::Job::count() >= jobs {
+        return Err(StatusCode::TOO_MANY_REQUESTS.into_response());
     }
 
     let mut wasm = None;
@@ -371,7 +289,7 @@ async fn root_post(
                     .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
                 {
                     len += chunk.len();
-                    if len > ctx.size_limit * 1024 * 1024 {
+                    if len > size * 1024 * 1024 {
                         return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
                     }
 
@@ -418,166 +336,66 @@ async fn root_post(
 
     let wasm = wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
     let toml = toml.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-    let uuid = Uuid::new_v4();
-    let exec = Command::new(command)
-        .arg("run")
-        .arg("--wasmcfgfile")
-        .arg(toml.path())
-        .arg(wasm.path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|e| {
+
+    // Create the new job and get an identifier.
+    let uuid = {
+        let mut lock = user.write().await;
+
+        if lock.data.job.is_some() || jobs::Job::count() >= jobs {
+            return Err(StatusCode::TOO_MANY_REQUESTS.into_response());
+        }
+
+        let job = jobs::Job::new(command, wasm, toml).map_err(|e| {
             error!("failed to spawn process: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
 
-    let mut lock = OUT.write().await;
+        let uuid = job.uuid;
+        lock.data = Data { job: Some(job) };
+        uuid
+    };
 
-    // Final confirmation that we will allow this job.
-    if lock.len() >= jobs {
-        return Err(StatusCode::TOO_MANY_REQUESTS.into_response());
-    }
-
-    lock.insert(
-        uuid,
-        Arc::new(Mutex::new(State {
-            exec,
-            wasm,
-            toml,
-            user: ctx.user.unwrap(),
-            token: claims.token().clone(),
-        })),
-    );
-
+    // Set the job timeout.
+    let weak = Ref::downgrade(&user);
     tokio::spawn(async move {
-        // Convert from minutes to seconds.
-        sleep(Duration::from_secs(ctx.timeout * 60)).await;
+        sleep(ttl).await;
 
-        // Stop running the workload
-        if let Some(state) = OUT.write().await.get(&uuid) {
-            let _ = state.lock().await.exec.kill().await;
+        if let Some(user) = weak.upgrade() {
+            debug!("timeout for: {}", uuid);
+            let mut lock = user.write().await;
+            if lock.data.job.as_ref().map(|j| j.uuid) == Some(uuid) {
+                lock.data.job = None;
+            }
         }
-
-        // Remove the workload state completely if it still exists
-        sleep(Duration::from_secs(5 * 60)).await;
-        OUT.write().await.remove(&uuid);
     });
 
-    Ok((StatusCode::SEE_OTHER, [("Location", format!("/{}", uuid))]))
+    debug!("started: {}", uuid);
+    Ok((StatusCode::SEE_OTHER, [("Location", "/")]))
 }
 
-async fn uuid_get(
-    Path(uuid): Path<String>,
-    claims: Result<Claims, ClaimsError>,
-) -> impl IntoResponse {
-    let uuid: Uuid = uuid.parse().map_err(|_| redirect::workload_not_found())?;
-    let lock = OUT.read().await;
-    let exec = lock.get(&uuid).ok_or_else(redirect::workload_not_found)?;
-    let claims = claims.map_err(|e| e.redirect_response())?;
-    let user = claims.github().unwrap_or_default();
+async fn root_delete(user: Ref<auth::User<Data>>) -> StatusCode {
+    let mut lock = user.write().await;
 
-    if exec.lock().await.user != user {
-        return Err(redirect::workload_not_found());
+    if let Some(uuid) = lock.data.job.as_ref().map(|j| j.uuid) {
+        debug!("killing: {}", uuid);
+        lock.data.job = None;
     }
 
-    Ok(HtmlTemplate(UuidGetTemplate {}))
+    StatusCode::OK
 }
 
-async fn uuid_out_post(
-    Path(uuid): Path<String>,
-    session: WorkloadSession,
-) -> Result<impl IntoResponse, StatusCode> {
+async fn reader(user: Ref<auth::User<Data>>, kind: jobs::Standard) -> Result<Vec<u8>, StatusCode> {
     let mut buf = [0; 4096];
 
-    let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
-    let exec = OUT
-        .read()
-        .await
-        .get(&uuid)
-        .ok_or(StatusCode::NOT_FOUND)?
-        .clone();
-
-    if exec.lock().await.user != session.user {
-        return Err(StatusCode::NOT_FOUND);
+    match user.write().await.data.job.as_mut() {
+        None => Err(StatusCode::NOT_FOUND),
+        Some(job) => {
+            let future = job.read(kind, &mut buf);
+            match timeout(READ_TIMEOUT, future).await {
+                Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+                Ok(Ok(size)) => Ok(buf[..size].to_vec()),
+                Err(..) => Ok(Vec::new()),
+            }
+        }
     }
-
-    let future = async {
-        exec.lock()
-            .await
-            .exec
-            .stdout
-            .as_mut()
-            .unwrap()
-            .read(&mut buf)
-            .await
-    };
-
-    match timeout(READ_TIMEOUT, future).await {
-        Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-        Ok(Ok(size)) => Ok(buf[..size].to_vec()),
-        Err(..) => Ok(Vec::new()),
-    }
-}
-
-async fn uuid_err_post(
-    Path(uuid): Path<String>,
-    session: WorkloadSession,
-) -> Result<impl IntoResponse, StatusCode> {
-    let mut buf = [0; 4096];
-
-    let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
-    let exec = OUT
-        .read()
-        .await
-        .get(&uuid)
-        .ok_or(StatusCode::NOT_FOUND)?
-        .clone();
-
-    if exec.lock().await.user != session.user {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    let future = async {
-        exec.lock()
-            .await
-            .exec
-            .stderr
-            .as_mut()
-            .unwrap()
-            .read(&mut buf)
-            .await
-    };
-
-    match timeout(READ_TIMEOUT, future).await {
-        Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-        Ok(Ok(size)) => Ok(buf[..size].to_vec()),
-        Err(..) => Ok(Vec::new()),
-    }
-}
-
-async fn uuid_kill_get(
-    Path(uuid): Path<String>,
-    session: Option<WorkloadSession>,
-) -> Result<Redirect, Redirect> {
-    let session = session.ok_or_else(redirect::home)?;
-    let uuid: Uuid = uuid.parse().map_err(|_| redirect::home())?;
-    let exec = OUT
-        .read()
-        .await
-        .get(&uuid)
-        .ok_or_else(redirect::home)?
-        .clone();
-
-    if exec.lock().await.user != session.user {
-        return Err(redirect::home());
-    }
-
-    OUT.write()
-        .await
-        .remove(&uuid)
-        .map(|_| redirect::workload_killed())
-        .ok_or_else(redirect::workload_not_found)
 }

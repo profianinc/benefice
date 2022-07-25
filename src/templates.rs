@@ -2,21 +2,22 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use askama::Template;
-use axum::{
-    http::StatusCode,
-    response::{Html, IntoResponse, Response},
-};
+use axum::http::StatusCode;
+use axum::response::{Html, IntoResponse, Response};
 
 #[derive(Template)]
-#[template(path = "root_get.html")]
-pub struct RootGetTemplate {
+#[template(path = "idx.html")]
+pub struct IdxTemplate {
     pub toml: &'static str,
-    pub ctx: super::Context,
+    pub user: bool,
+    pub star: bool,
+    pub size: usize,
+    pub ttl: u64,
 }
 
 #[derive(Template)]
-#[template(path = "uuid_get.html")]
-pub struct UuidGetTemplate {}
+#[template(path = "job.html")]
+pub struct JobTemplate;
 
 pub struct HtmlTemplate<T>(pub T);
 

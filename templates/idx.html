@@ -27,24 +27,14 @@ SPDX-License-Identifier: AGPL-3.0-only
                 <img src="https://try.enarx.dev/img/enarx.png">
             </a>
 
-            <span class="navbar-item">by</span>
+            <div class="navbar-item p-0">by</div>
 
-            <a class="navbar-item" href="https://profian.com" style="width: 100%">
-                <img src="https://try.enarx.dev/img/profian.svg">
-            </a>
-
-            <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false"
-                data-target="navbarBasicExample">
-                <span aria-hidden="true"></span>
-                <span aria-hidden="true"></span>
-                <span aria-hidden="true"></span>
+            <a class="navbar-item" href="https://profian.com">
+                <img src="https://try.enarx.dev/img/profian.svg" style="width: 100px">
             </a>
         </div>
 
-        <div id="navbarBasicExample" class="navbar-menu">
-            <div class="navbar-start">
-            </div>
-
+        <div class="navbar-menu">
             <div class="navbar-end">
                 <div class="navbar-item">
                     <div class="buttons">
@@ -76,7 +66,7 @@ SPDX-License-Identifier: AGPL-3.0-only
                     For some sample applications you can use, check out the <a
                         href="https://github.com/enarx/codex">Enarx Codex</a>.
                     Learn more at <a href="https://www.enarx.dev/">www.enarx.dev</a>.
-                    {% if ctx.star %}
+                    {% if star %}
                     Thanks for starring the Enarx project!
                     {% else %}
                     To raise the workload limits, star <a href="https://github.com/enarx/enarx">the Enarx project</a>.
@@ -104,7 +94,7 @@ SPDX-License-Identifier: AGPL-3.0-only
                 </div>
                 <span class="is-pulled-right p-2">
                     <span class="has-text-weight-bold">Workload Limits:</span>
-                    <span>{{ ctx.timeout }} minutes / {{ ctx.size_limit }} MiB</span>
+                    <span>{{ ttl }} seconds / {{ size }} MiB</span>
                 </span>
                 <br />
 
@@ -120,7 +110,7 @@ SPDX-License-Identifier: AGPL-3.0-only
         </div>
     </section>
     <!-- A quick workaround to get data into javascript without breaking anything is to use invisible tags -->
-    {% if ctx.user.is_some() %}<div id="authenticated" style="display: none"></div>{% endif %}
+    {% if user %}<div id="authenticated" style="display: none"></div>{% endif %}
     <script>
         function httpGetAsync(theUrl, callback) {
             var xmlHttp = new XMLHttpRequest();

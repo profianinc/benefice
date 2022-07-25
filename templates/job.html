@@ -17,14 +17,21 @@ SPDX-License-Identifier: AGPL-3.0-only
   <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js" async=""></script>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Nunito:400,700" media="all">
   <style>
-    #console {
+    #output {
+      width: 80ch;
+    }
+
+    #output #console {
       font-family: 'Courier New', Courier, monospace;
       background-color: black;
       color: white;
       overflow: scroll;
       display: block;
       height: 28em;
-      width: 80ch;
+    }
+
+    #output button {
+      width: 100%;
     }
 
   </style>
@@ -34,6 +41,10 @@ SPDX-License-Identifier: AGPL-3.0-only
       return fetch(kind, { method: 'POST' })
         .then((response) => {
           if (!response.ok) {
+            if (response.status == 404) {
+              window.location.replace("/");
+            }
+
             throw new Error(`HTTP error! Status: ${response.status}`);
           }
 
@@ -45,6 +56,17 @@ SPDX-License-Identifier: AGPL-3.0-only
           console.scrollTop = console.scrollHeight;
           update(kind);
         });
+    }
+
+    function kill() {
+      return fetch('/', { method: 'DELETE' })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+
+          window.location.replace("/");
+        })
     }
 
     function onLoad() {
@@ -61,34 +83,14 @@ SPDX-License-Identifier: AGPL-3.0-only
         <img src="https://try.enarx.dev/img/enarx.png">
       </a>
 
-      <span class="navbar-item">by</span>
+      <div class="navbar-item p-0">by</div>
 
-      <a class="navbar-item" href="https://profian.com" style="width: 100%">
-        <img src="https://try.enarx.dev/img/profian.svg">
+      <a class="navbar-item" href="https://profian.com">
+        <img src="https://try.enarx.dev/img/profian.svg" style="width: 100px">
       </a>
-
-      <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarBasicExample">
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-        <span aria-hidden="true"></span>
-      </a>
-    </div>
-
-    <div id="navbarBasicExample" class="navbar-menu">
-      <div class="navbar-start">
-      </div>
-
-      <div class="navbar-end">
-        <div class="navbar-item">
-          <div class="buttons">
-            <a class="button is-primary" id="auth" href="kill">
-              Go back
-            </a>
-          </div>
-        </div>
-      </div>
     </div>
   </nav>
+
   <section class="bd-hello">
     <div class="bd-heading">
       <span class="icon has-text-danger is-size-2-widescreen">
@@ -98,8 +100,11 @@ SPDX-License-Identifier: AGPL-3.0-only
         <strong>Enarx</strong> demo
       </h2>
     </div>
-    <div class="container">
+
+    <div class="container" id="output">
       <pre id="console"></pre>
+      <br />
+      <button class="button is-danger" onclick="kill()">Kill</button>
     </div>
   </section>
   <section class="bd-index-section" style="--bd-section-h: 229deg;">

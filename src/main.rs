@@ -6,6 +6,7 @@
 
 mod auth;
 mod jobs;
+mod redirect;
 mod reference;
 mod secret;
 mod templates;
@@ -20,7 +21,7 @@ use std::time::Duration;
 
 use axum::extract::Multipart;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
 use axum::{Router, Server};
 
@@ -257,8 +258,13 @@ async fn root_post(
     jobs: usize,
 ) -> impl IntoResponse {
     let (ttl, size) = limits.decide(user.read().await.is_starred("enarx/enarx").await);
-    if user.read().await.data.job.is_some() || jobs::Job::count() >= jobs {
-        return Err(StatusCode::TOO_MANY_REQUESTS.into_response());
+
+    if user.read().await.data.job.is_some() {
+        return Err(Redirect::to("/").into_response());
+    }
+
+    if jobs::Job::count() >= jobs {
+        return Err(redirect::too_many_workloads().into_response());
     }
 
     let mut wasm = None;
@@ -341,8 +347,12 @@ async fn root_post(
     let uuid = {
         let mut lock = user.write().await;
 
-        if lock.data.job.is_some() || jobs::Job::count() >= jobs {
-            return Err(StatusCode::TOO_MANY_REQUESTS.into_response());
+        if lock.data.job.is_some() {
+            return Err(Redirect::to("/").into_response());
+        }
+
+        if jobs::Job::count() >= jobs {
+            return Err(redirect::too_many_workloads().into_response());
         }
 
         let job = jobs::Job::new(command, wasm, toml).map_err(|e| {

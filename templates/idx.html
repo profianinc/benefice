@@ -131,32 +131,8 @@ SPDX-License-Identifier: AGPL-3.0-only
 
         // SECURITY: Do not put query parameter values in messageHTML.
         switch (messageCode) {
-            case 'no_session': {
-                if (!authenticated) {
-                    messageHTML.push("It looks like you have been logged out.");
-                }
-                break;
-            }
-            case 'workload_not_found': {
-                if (authenticated) {
-                    messageHTML.push("The workload was not found or you are not permitted to view it.");
-                } else {
-                    messageHTML.push("You need to be logged in to view workloads.");
-                }
-                break;
-            }
             case 'too_many_workloads': {
                 messageHTML.push("Too many workloads are running on this server! Please try again later.");
-                break;
-            }
-            case 'workload_killed': {
-                // Users probably don't care if the workload was killed.
-                // This is just here for testing.
-                // messageHTML.push("Workload killed successfully.");
-                break;
-            }
-            case 'internal_error': {
-                messageHTML.push("An internal error occurred handling your request. Please try again or contact an administrator.");
                 break;
             }
             default: {

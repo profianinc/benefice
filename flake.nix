@@ -102,6 +102,10 @@
 
             devRust
           ];
+
+          nativeBuildInputs = [
+            pkgs.pkg-config
+          ];
         };
       }
     );

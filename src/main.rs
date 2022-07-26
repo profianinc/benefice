@@ -28,7 +28,7 @@ use anyhow::{bail, Context as _};
 use clap::Parser;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
@@ -369,7 +369,10 @@ async fn root_post(
         }
     });
 
-    debug!("started: {}", uuid);
+    info!(
+        "job started. job_id={uuid}, user_id={}",
+        user.read().await.uid
+    );
     Ok((StatusCode::SEE_OTHER, [("Location", "/")]))
 }
 

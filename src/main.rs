@@ -5,18 +5,22 @@
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
 mod auth;
+mod data;
 mod jobs;
+mod ports;
 mod redirect;
 mod reference;
 mod secret;
 mod templates;
 
+use crate::data::Data;
 use crate::reference::Ref;
 use crate::templates::{HtmlTemplate, IdxTemplate, JobTemplate};
 
 use std::fs::read;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::ops::Range;
 use std::time::Duration;
 
 use axum::extract::Multipart;
@@ -27,6 +31,7 @@ use axum::{Router, Server};
 
 use anyhow::{bail, Context as _};
 use clap::Parser;
+use tokio::fs::read_to_string;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
@@ -35,11 +40,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
-
-#[derive(Debug, Default)]
-struct Data {
-    job: Option<jobs::Job>,
-}
 
 /// Demo workload executor.
 ///
@@ -80,6 +80,20 @@ struct Args {
     #[clap(long, default_value_t = 15 * 60)]
     timeout_starred: u64,
 
+    /// If duplicate listen port mitigations should be enabled.
+    /// This will track ports opened by benefice to prevent
+    /// users from listening on the same port twice.
+    #[clap(long, default_value_t = true)]
+    shared_port_protections: bool,
+
+    /// The lowest listen port allowed in an Enarx.toml.
+    #[clap(long, default_value_t = 2_000)]
+    port_min: u16,
+
+    /// The highest listen port allowed in an Enarx.toml.
+    #[clap(long, default_value_t = 30_000)]
+    port_max: u16,
+
     /// Command to execute, normally path to `enarx` binary.
     /// This command will be executed as: `<cmd> run --wasmcfgfile <path-to-config> <path-to-wasm>`
     #[clap(long, default_value = "enarx")]
@@ -118,6 +132,8 @@ impl Args {
         let other = Other {
             addr: self.addr,
             jobs: self.jobs,
+            shared_port_protections: self.shared_port_protections,
+            port_range: self.port_min..self.port_max,
             cmd: self.command,
         };
 
@@ -153,6 +169,8 @@ impl Limits {
 struct Other {
     addr: SocketAddr,
     jobs: usize,
+    shared_port_protections: bool,
+    port_range: Range<u16>,
     cmd: String,
 }
 
@@ -212,7 +230,17 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/",
             get(move |user| root_get(user, limits))
-                .post(move |user, mp| root_post(user, mp, other.cmd, limits, other.jobs))
+                .post(move |user, mp| {
+                    root_post(
+                        user,
+                        mp,
+                        other.cmd,
+                        limits,
+                        other.shared_port_protections,
+                        other.port_range,
+                        other.jobs,
+                    )
+                })
                 .delete(root_delete),
         );
 
@@ -228,7 +256,7 @@ async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl I
     let (user, star) = match user {
         None => (false, false),
         Some(user) => {
-            if user.read().await.data.job.is_some() {
+            if user.read().await.data.job().is_some() {
                 return HtmlTemplate(JobTemplate).into_response();
             }
 
@@ -255,11 +283,13 @@ async fn root_post(
     mut multipart: Multipart,
     command: String,
     limits: Limits,
+    shared_port_protections: bool,
+    port_range: Range<u16>,
     jobs: usize,
 ) -> impl IntoResponse {
     let (ttl, size) = limits.decide(user.read().await.is_starred("enarx/enarx").await);
 
-    if user.read().await.data.job.is_some() {
+    if user.read().await.data.job().is_some() {
         return Err(Redirect::to("/").into_response());
     }
 
@@ -343,11 +373,38 @@ async fn root_post(
     let wasm = wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
     let toml = toml.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
 
+    let enarx_config_string = read_to_string(&toml).await.map_err(|e| {
+        debug!("failed to read enarx config file: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
+    let ports = ports::get_listen_ports(&enarx_config_string).map_err(|e| {
+        debug!("failed to get ports from enarx config: {e}");
+        StatusCode::BAD_REQUEST.into_response()
+    })?;
+
+    // Check if the port is outside of the range of allowed ports
+    let illegal_ports = ports
+        .iter()
+        .filter(|port| !port_range.contains(port))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !illegal_ports.is_empty() {
+        return Err(redirect::illegal_ports(&illegal_ports, port_range).into_response());
+    }
+
+    if shared_port_protections {
+        // Check if a port is already in use by another running workload
+        ports::try_reserve(&ports)
+            .await
+            .map_err(|port_conflicts| redirect::port_conflicts(&port_conflicts).into_response())?;
+    }
+
     // Create the new job and get an identifier.
     let uuid = {
         let mut lock = user.write().await;
 
-        if lock.data.job.is_some() {
+        if lock.data.job().is_some() {
             return Err(Redirect::to("/").into_response());
         }
 
@@ -355,13 +412,13 @@ async fn root_post(
             return Err(redirect::too_many_workloads().into_response());
         }
 
-        let job = jobs::Job::new(command, wasm, toml).map_err(|e| {
+        let job = jobs::Job::new(command, wasm, toml, ports).map_err(|e| {
             error!("failed to spawn process: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
 
         let uuid = job.uuid;
-        lock.data = Data { job: Some(job) };
+        lock.data = Data::new(Some(job));
         uuid
     };
 
@@ -373,8 +430,8 @@ async fn root_post(
         if let Some(user) = weak.upgrade() {
             debug!("timeout for: {}", uuid);
             let mut lock = user.write().await;
-            if lock.data.job.as_ref().map(|j| j.uuid) == Some(uuid) {
-                lock.data.job = None;
+            if lock.data.job().as_ref().map(|j| j.uuid) == Some(uuid) {
+                lock.data.kill_job().await;
             }
         }
     });
@@ -389,9 +446,9 @@ async fn root_post(
 async fn root_delete(user: Ref<auth::User<Data>>) -> StatusCode {
     let mut lock = user.write().await;
 
-    if let Some(uuid) = lock.data.job.as_ref().map(|j| j.uuid) {
+    if let Some(uuid) = lock.data.job().as_ref().map(|j| j.uuid) {
         debug!("killing: {}", uuid);
-        lock.data.job = None;
+        lock.data.kill_job().await;
     }
 
     StatusCode::OK
@@ -400,7 +457,7 @@ async fn root_delete(user: Ref<auth::User<Data>>) -> StatusCode {
 async fn reader(user: Ref<auth::User<Data>>, kind: jobs::Standard) -> Result<Vec<u8>, StatusCode> {
     let mut buf = [0; 4096];
 
-    match user.write().await.data.job.as_mut() {
+    match user.write().await.data.job_mut() {
         None => Err(StatusCode::NOT_FOUND),
         Some(job) => {
             let future = job.read(kind, &mut buf);

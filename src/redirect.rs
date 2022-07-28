@@ -10,6 +10,11 @@ pub fn too_many_workloads() -> Redirect {
     Redirect::to("/?message=too_many_workloads")
 }
 
+/// A workload is trying to listen to too many ports at once.
+pub fn too_many_listeners(listen_max: u16) -> Redirect {
+    Redirect::to(&format!("/?message=too_many_listeners&max={listen_max}",))
+}
+
 /// Some listen ports are outside of the allowed range.
 pub fn illegal_ports(illegal_ports: &[u16], port_range: Range<u16>) -> Redirect {
     Redirect::to(&format!(

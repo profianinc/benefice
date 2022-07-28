@@ -94,6 +94,10 @@ struct Args {
     #[clap(long, default_value_t = 30_000)]
     port_max: u16,
 
+    /// The maximum number of listen ports a workload is allowed to have.
+    #[clap(long, default_value_t = 15)]
+    listen_max: u16,
+
     /// Command to execute, normally path to `enarx` binary.
     /// This command will be executed as: `<cmd> run --wasmcfgfile <path-to-config> <path-to-wasm>`
     #[clap(long, default_value = "enarx")]
@@ -134,6 +138,7 @@ impl Args {
             jobs: self.jobs,
             shared_port_protections: self.shared_port_protections,
             port_range: self.port_min..self.port_max,
+            listen_max: self.listen_max,
             cmd: self.command,
         };
 
@@ -171,6 +176,7 @@ struct Other {
     jobs: usize,
     shared_port_protections: bool,
     port_range: Range<u16>,
+    listen_max: u16,
     cmd: String,
 }
 
@@ -238,6 +244,7 @@ async fn main() -> anyhow::Result<()> {
                         limits,
                         other.shared_port_protections,
                         other.port_range,
+                        other.listen_max,
                         other.jobs,
                     )
                 })
@@ -278,6 +285,7 @@ async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl I
 }
 
 // TODO: create tests for endpoints: #38
+#[allow(clippy::too_many_arguments)]
 async fn root_post(
     user: Ref<auth::User<Data>>,
     mut multipart: Multipart,
@@ -285,6 +293,7 @@ async fn root_post(
     limits: Limits,
     shared_port_protections: bool,
     port_range: Range<u16>,
+    listen_max: u16,
     jobs: usize,
 ) -> impl IntoResponse {
     let (ttl, size) = limits.decide(user.read().await.is_starred("enarx/enarx").await);
@@ -381,6 +390,11 @@ async fn root_post(
         debug!("failed to get ports from enarx config: {e}");
         StatusCode::BAD_REQUEST.into_response()
     })?;
+
+    // Check if the user is trying to listen on too many ports.
+    if ports.len() > listen_max as usize {
+        return Err(redirect::too_many_listeners(listen_max).into_response());
+    }
 
     // Check if the port is outside of the range of allowed ports
     let illegal_ports = ports

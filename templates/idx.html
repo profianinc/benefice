@@ -140,6 +140,13 @@ SPDX-License-Identifier: AGPL-3.0-only
                 messageHTML.push("Too many workloads are running on this server! Please try again later.");
                 break;
             }
+            case 'too_many_listeners': {
+                var max = queryParams.get('max');
+                messageHTML.push(
+                    "You are trying to listen on more than " + sanitizeHtml(max) + " ports. Please remove some of them and try again."
+                );
+                break;
+            }
             case 'illegal_ports': {
                 var ports = queryParams.get('ports').split(',').join(', ');
                 var range = queryParams.get('range').split('-');

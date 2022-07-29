@@ -1,82 +1,97 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-mod context;
-mod session;
-mod sessions;
-mod sid;
+mod key;
 mod user;
 
-pub use self::user::User;
-pub use openidconnect::url::Url;
-
 use std::fmt::Display;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::{Extension, Query};
-use axum::headers::HeaderName;
-use axum::http::{HeaderValue, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::get;
 use axum::Router;
 
-use openidconnect::core::{CoreClient, CoreProviderMetadata};
+use openidconnect::core::{CoreClient, CoreProviderMetadata, CoreResponseType, CoreUserInfoClaims};
 use openidconnect::reqwest::async_http_client;
-use openidconnect::{AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
+use openidconnect::{
+    AuthType, AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl,
+    Nonce, OAuth2TokenResponse, RedirectUrl,
+};
 
 use anyhow::{Context as _, Error};
 use serde::Deserialize;
 use tracing::error;
 
-use self::context::Context;
-use self::session::Session;
-use self::sessions::Sessions;
-use self::sid::SessionId;
-use crate::reference::Ref;
+pub use self::key::Key;
+pub use self::user::User;
+pub use openidconnect::url::Url;
+
+struct Config {
+    oidc: CoreClient,
+    ttl: Duration,
+    key: Key,
+}
 
 #[derive(Debug, Deserialize)]
 struct AuthRequest {
     code: String,
 }
 
-async fn authorized<T: 'static + Send + Sync + Default>(
-    Query(AuthRequest { code, .. }): Query<AuthRequest>,
-    Extension(ctx): Extension<Ref<Context<T>>>,
-) -> Result<([(HeaderName, HeaderValue); 1], Redirect), (StatusCode, &'static str)> {
-    fn ice<E: Display>(info: &'static str) -> impl Fn(E) -> (StatusCode, &'static str) {
-        move |e: E| {
-            error!("{}: {}", info, e);
-            (StatusCode::INTERNAL_SERVER_ERROR, info)
-        }
+fn ice<E: Display>(info: &'static str) -> impl Fn(E) -> (StatusCode, &'static str) {
+    move |e: E| {
+        error!("{}: {}", info, e);
+        (StatusCode::INTERNAL_SERVER_ERROR, info)
     }
+}
 
-    // Get the OIDC claims.
-    let claims = ctx
-        .clone()
-        .fetch_claims(code)
+async fn authorized(
+    Query(AuthRequest { code, .. }): Query<AuthRequest>,
+    Extension(config): Extension<Arc<Config>>,
+) -> impl IntoResponse {
+    // Get the OIDC token.
+    let token = config
+        .oidc
+        .exchange_code(AuthorizationCode::new(code))
+        .request_async(async_http_client)
+        .await
+        .map_err(ice("error constructing request token"))?;
+
+    // Get the OIDC claims from the token.
+    let claims: CoreUserInfoClaims = config
+        .oidc
+        .user_info(token.access_token().clone(), None)
+        .map_err(ice("error constructing user info request"))?
+        .request_async(async_http_client)
         .await
         .map_err(ice("error fetching claims"))?;
 
     // Get the GitHub user identifier.
-    let uid: usize = match claims.subject().split_once('|') {
-        Some(("github", uid)) => uid.parse().map_err(ice("invalid uid"))?,
-        _ => return Err(ice("invalid user type")("unknown user type")),
-    };
+    match claims.subject().split_once('|') {
+        Some(("github", uid)) => Ok(User::create(
+            &config,
+            uid.parse().map_err(ice("invalid uid"))?,
+        )),
 
-    // Return the cookie.
-    let cookie = ctx.read().await.sessions().create_session(uid).await;
-    Ok(([cookie], Redirect::to("/")))
+        _ => Err(ice("invalid user type")("unknown user type")),
+    }
 }
 
 // TODO: invalidate the session on the remote server properly
-async fn logout(sid: SessionId) -> ([(HeaderName, HeaderValue); 1], Redirect) {
-    ([sid.clear()], Redirect::to("/"))
+async fn logout() -> impl IntoResponse {
+    User::clear()
 }
 
-async fn login<T: 'static + Send + Sync>(
-    Extension(ctx): Extension<Ref<Context<T>>>,
-) -> impl IntoResponse {
-    Redirect::temporary(ctx.read().await.start_auth().as_str())
+async fn login(Extension(config): Extension<Arc<Config>>) -> impl IntoResponse {
+    let request = config.oidc.authorize_url(
+        AuthenticationFlow::<CoreResponseType>::AuthorizationCode,
+        CsrfToken::new_random,
+        Nonce::new_random,
+    );
+
+    Redirect::temporary(request.url().0.as_str())
 }
 
 pub struct Oidc {
@@ -84,14 +99,12 @@ pub struct Oidc {
     pub issuer: Url,
     pub client: String,
     pub secret: Option<String>,
-    pub ttl: Duration,
+    pub session_ttl: Duration,
+    pub session_key: Key,
 }
 
 impl Oidc {
-    pub async fn routes<T: 'static + Send + Sync + Default>(
-        self,
-        router: Router,
-    ) -> Result<Router, Error> {
+    pub async fn routes(self, router: Router) -> Result<Router, Error> {
         let redir = RedirectUrl::from_url(self.server.join("/authorized").unwrap());
         let secret = self.secret.map(ClientSecret::new);
         let url = IssuerUrl::from_url(self.issuer);
@@ -105,12 +118,14 @@ impl Oidc {
             .set_redirect_uri(redir)
             .set_auth_type(AuthType::RequestBody);
 
-        let ctx = Ref::from(Context::<T>::new(self.ttl, oidc));
-
         Ok(router
-            .route("/authorized", get(authorized::<T>))
+            .route("/authorized", get(authorized))
             .route("/logout", get(logout))
-            .route("/login", get(login::<T>))
-            .layer(Extension(ctx)))
+            .route("/login", get(login))
+            .layer(Extension(Arc::new(Config {
+                oidc,
+                key: self.session_key,
+                ttl: self.session_ttl,
+            }))))
     }
 }

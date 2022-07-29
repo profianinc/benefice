@@ -2,54 +2,161 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::io::{Cursor, Read, Write};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
-use axum::async_trait;
+use aes_gcm::aead::Aead;
+use aes_gcm::{Aes128Gcm, NewAead, Nonce};
 use axum::extract::{FromRequest, RequestParts};
-use axum::response::Response;
+use axum::headers::Cookie;
+use axum::http::HeaderValue;
+use axum::http::{header::SET_COOKIE, StatusCode};
+use axum::response::{IntoResponse, Redirect, Response};
+use axum::{async_trait, TypedHeader};
+use base64::read::DecoderReader;
+use base64::write::EncoderStringWriter;
+use base64::URL_SAFE_NO_PAD;
 use once_cell::sync::Lazy;
+use rand::RngCore;
 use reqwest::{Client, ClientBuilder};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::error;
 
-use crate::reference::Ref;
+use super::Config;
 
-use super::Session;
+const STAR_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const COOKIE_NAME: &str = "SESSION";
+
+static STAR: Lazy<RwLock<HashMap<(u64, &'static str), bool>>> = Lazy::new(|| HashMap::new().into());
 
 static HTTP: Lazy<Client> = Lazy::new(|| {
     const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
     ClientBuilder::new().user_agent(USER_AGENT).build().unwrap()
 });
 
-const STAR_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
-static STAR: Lazy<RwLock<HashMap<(usize, &'static str), bool>>> =
-    Lazy::new(|| HashMap::new().into());
-
 #[derive(Debug, Deserialize)]
 struct Repo {
     pub full_name: String,
 }
 
-#[derive(Debug)]
-pub struct User<T> {
-    pub uid: usize,
-    pub data: T,
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub struct User {
+    time: SystemTime,
+    uid: u64,
+}
+
+impl Eq for User {}
+impl PartialEq for User {
+    fn eq(&self, other: &Self) -> bool {
+        self.uid == other.uid
+    }
+}
+
+impl Hash for User {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.uid.hash(state);
+    }
+}
+
+impl Display for User {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.uid.fmt(f)
+    }
+}
+
+impl User {
+    pub(super) fn create(config: &Config, uid: u64) -> Response {
+        let time = SystemTime::now();
+        let user = User { time, uid };
+
+        // Encode the structure.
+        let plaintext = serde_json::to_vec(&user).unwrap();
+
+        // Generate the nonce.
+        let mut rng = rand::thread_rng();
+        let mut nonce = Nonce::default();
+        rng.fill_bytes(&mut nonce);
+
+        // Do the encryption.
+        let aes = Aes128Gcm::new(&config.key);
+        let ciphertext = aes.encrypt(&nonce, &*plaintext).unwrap();
+
+        // Encode the results.
+        let mut b64 = EncoderStringWriter::new(URL_SAFE_NO_PAD);
+        b64.write_all(&nonce).unwrap();
+        b64.write_all(&ciphertext).unwrap();
+
+        // Create the cookie.
+        let s = format!(
+            "{}={}; SameSite=Lax; Path=/; Max-Age={}",
+            COOKIE_NAME,
+            b64.into_inner(),
+            config.ttl.as_secs(),
+        );
+
+        let header = (SET_COOKIE, HeaderValue::from_str(&s).unwrap());
+        ([header], Redirect::to("/")).into_response()
+    }
+
+    pub(super) fn clear() -> Response {
+        let s = format!("{}=; SameSite=Lax; Path=/; Max-Age=0", COOKIE_NAME);
+        let header = (SET_COOKIE, HeaderValue::from_str(&s).unwrap());
+        ([header], Redirect::to("/")).into_response()
+    }
 }
 
 #[async_trait]
-impl<T: 'static + Send + Sync, B: Send> FromRequest<B> for Ref<User<T>> {
-    type Rejection = Response;
+impl<B: Send> FromRequest<B> for User {
+    type Rejection = StatusCode;
 
     async fn from_request(req: &mut RequestParts<B>) -> Result<Self, Self::Rejection> {
-        let session = Ref::<Session<T>>::from_request(req).await?;
-        let user = session.read().await.user.clone();
+        // Get the configuration.
+        let config = req.extensions().get::<Arc<Config>>().cloned().unwrap();
+
+        // Get the session cookie.
+        let cookies = TypedHeader::<Cookie>::from_request(req)
+            .await
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+        let value = cookies.get(COOKIE_NAME).ok_or(StatusCode::BAD_REQUEST)?;
+
+        // Decode the input.
+        let mut cur = Cursor::new(value.as_bytes());
+        let mut b64 = DecoderReader::new(&mut cur, URL_SAFE_NO_PAD);
+
+        // Read the nonce.
+        let mut nonce = Nonce::default();
+        b64.read_exact(&mut nonce)
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        // Read the ciphertext.
+        let mut ciphertext = Vec::new();
+        b64.read_to_end(&mut ciphertext)
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        // Decrypt the ciphertext.
+        let aes = Aes128Gcm::new(&config.key);
+        let plaintext = aes
+            .decrypt(&nonce, &*ciphertext)
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        // Decode the object.
+        let user: User = serde_json::from_slice(&plaintext).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        // Check for freshness.
+        if user.time + config.ttl < SystemTime::now() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
         Ok(user)
     }
 }
 
-impl<T> User<T> {
+impl User {
     pub async fn is_starred(&self, repo: &'static str) -> bool {
         if let Some(star) = STAR.read().await.get(&(self.uid, repo)) {
             return *star;

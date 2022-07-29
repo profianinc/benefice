@@ -5,13 +5,15 @@
 #![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
 
 mod auth;
+mod job;
 mod jobs;
 mod redirect;
-mod reference;
 mod secret;
 mod templates;
 
-use crate::reference::Ref;
+use self::auth::{Key, Oidc, User};
+use self::job::{Job, Standard};
+use self::jobs::Jobs;
 use crate::templates::{HtmlTemplate, IdxTemplate, JobTemplate};
 
 use std::fs::read;
@@ -22,24 +24,24 @@ use std::time::Duration;
 use axum::extract::Multipart;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect};
-use axum::routing::{get, post};
+use axum::routing::post;
 use axum::{Router, Server};
 
 use anyhow::{bail, Context as _};
 use clap::Parser;
+use once_cell::sync::Lazy;
+use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use uuid::Uuid;
 
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
-#[derive(Debug, Default)]
-struct Data {
-    job: Option<jobs::Job>,
-}
+static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
 
 /// Demo workload executor.
 ///
@@ -95,11 +97,19 @@ struct Args {
 
     /// Path to a file containing OpenID Connect secret.
     #[clap(long)]
-    oidc_secret: Option<secret::SecretFile>,
+    oidc_secret: Option<secret::SecretFile<String>>,
+
+    /// Key used to encrypt the session cookie.
+    #[clap(long)]
+    session_key: Option<secret::SecretFile<Key>>,
+
+    /// Session cookie time to live (in minutes).
+    #[clap(long, default_value_t = 24 * 60)]
+    session_ttl: u64,
 }
 
 impl Args {
-    fn split(self) -> (Limits, auth::Oidc, Other) {
+    fn split(self) -> (Limits, Create, Oidc, SocketAddr) {
         let limits = Limits {
             size_limit_default: self.size_limit_default,
             size_limit_starred: self.size_limit_starred,
@@ -107,22 +117,30 @@ impl Args {
             timeout_starred: Duration::from_secs(self.timeout_starred),
         };
 
-        let oidc = auth::Oidc {
+        let create = Create {
+            command: self.command,
+            jobs: self.jobs,
+            limits,
+        };
+
+        let oidc = Oidc {
             server: self.url,
             issuer: self.oidc_issuer,
             client: self.oidc_client,
             secret: self.oidc_secret.map(|sf| sf.into()),
-            ttl: Duration::from_secs(24 * 60 * 60),
+            session_ttl: Duration::from_secs(self.session_ttl * 60),
+            session_key: self.session_key.map(|k| k.into()).unwrap_or_default(),
         };
 
-        let other = Other {
-            addr: self.addr,
-            jobs: self.jobs,
-            cmd: self.command,
-        };
-
-        (limits, oidc, other)
+        (limits, create, oidc, self.addr)
     }
+}
+
+#[derive(Clone, Debug)]
+struct Create {
+    command: String,
+    limits: Limits,
+    jobs: usize,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -149,16 +167,9 @@ impl Limits {
     }
 }
 
-#[derive(Clone, Debug)]
-struct Other {
-    addr: SocketAddr,
-    jobs: usize,
-    cmd: String,
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let (limits, oidc, other) = std::env::args()
+    let (limits, create, oidc, addr) = std::env::args()
         .try_fold(Vec::new(), |mut args, arg| {
             if let Some(path) = arg.strip_prefix('@') {
                 let conf = read(path).context(format!("failed to read config file at `{path}`"))?;
@@ -200,39 +211,33 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let root = post(move |user, mp| root_post(user, mp, create))
+        .get(move |user| root_get(user, limits))
+        .delete(root_delete);
+
     let app = Router::new()
-        .route(
-            "/out",
-            post(move |user| reader(user, jobs::Standard::Output)),
-        )
-        .route(
-            "/err",
-            post(move |user| reader(user, jobs::Standard::Error)),
-        )
-        .route(
-            "/",
-            get(move |user| root_get(user, limits))
-                .post(move |user, mp| root_post(user, mp, other.cmd, limits, other.jobs))
-                .delete(root_delete),
-        );
+        .route("/out", post(move |user| reader(user, Standard::Output)))
+        .route("/err", post(move |user| reader(user, Standard::Error)))
+        .route("/", root);
 
-    let app = oidc.routes::<Data>(app).await?;
+    let app = oidc.routes(app).await?;
 
-    Server::bind(&other.addr)
+    Server::bind(&addr)
         .serve(app.layer(TraceLayer::new_for_http()).into_make_service())
         .await?;
+
     Ok(())
 }
 
-async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl IntoResponse {
+async fn root_get(user: Option<User>, limits: Limits) -> impl IntoResponse {
     let (user, star) = match user {
         None => (false, false),
         Some(user) => {
-            if user.read().await.data.job.is_some() {
+            if JOBS.read().await.by_user(&user).is_some() {
                 return HtmlTemplate(JobTemplate).into_response();
             }
 
-            (true, user.read().await.is_starred("enarx/enarx").await)
+            (true, user.is_starred("enarx/enarx").await)
         }
     };
 
@@ -250,22 +255,16 @@ async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl I
 }
 
 // TODO: create tests for endpoints: #38
-async fn root_post(
-    user: Ref<auth::User<Data>>,
-    mut multipart: Multipart,
-    command: String,
-    limits: Limits,
-    jobs: usize,
-) -> impl IntoResponse {
-    let (ttl, size) = limits.decide(user.read().await.is_starred("enarx/enarx").await);
-
-    if user.read().await.data.job.is_some() {
+async fn root_post(user: User, mut multipart: Multipart, create: Create) -> impl IntoResponse {
+    if JOBS.read().await.by_user(&user).is_some() {
         return Err(Redirect::to("/").into_response());
     }
 
-    if jobs::Job::count() >= jobs {
+    if JOBS.read().await.i2j.len() >= create.jobs {
         return Err(redirect::too_many_workloads().into_response());
     }
+
+    let (ttl, size) = create.limits.decide(user.is_starred("enarx/enarx").await);
 
     let mut wasm = None;
     let mut toml = None;
@@ -343,72 +342,70 @@ async fn root_post(
     let wasm = wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
     let toml = toml.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
 
-    // Create the new job and get an identifier.
-    let uuid = {
-        let mut lock = user.write().await;
+    // Create the new job.
+    let uuid = Uuid::new_v4();
+    {
+        let mut lock = JOBS.write().await;
 
-        if lock.data.job.is_some() {
+        if JOBS.read().await.by_user(&user).is_some() {
             return Err(Redirect::to("/").into_response());
         }
 
-        if jobs::Job::count() >= jobs {
+        if JOBS.read().await.i2j.len() >= create.jobs {
             return Err(redirect::too_many_workloads().into_response());
         }
 
-        let job = jobs::Job::new(command, wasm, toml).map_err(|e| {
+        let job = Job::new(create.command, wasm, toml).map_err(|e| {
             error!("failed to spawn process: {e}");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
 
-        let uuid = job.uuid;
-        lock.data = Data { job: Some(job) };
-        uuid
-    };
+        lock.i2j.insert(uuid, RwLock::new(job).into());
+        lock.u2i.insert(user, uuid);
+    }
 
     // Set the job timeout.
-    let weak = Ref::downgrade(&user);
     tokio::spawn(async move {
         sleep(ttl).await;
+        let mut lock = JOBS.write().await;
 
-        if let Some(user) = weak.upgrade() {
+        if lock.i2j.remove(&uuid).is_some() {
             debug!("timeout for: {}", uuid);
-            let mut lock = user.write().await;
-            if lock.data.job.as_ref().map(|j| j.uuid) == Some(uuid) {
-                lock.data.job = None;
-            }
+        }
+
+        if lock.u2i.get(&user) == Some(&uuid) {
+            lock.u2i.remove(&user);
         }
     });
 
-    info!(
-        "job started. job_id={uuid}, user_id={}",
-        user.read().await.uid
-    );
+    info!("job started. job_id={uuid}, user_id={}", user);
     Ok((StatusCode::SEE_OTHER, [("Location", "/")]))
 }
 
-async fn root_delete(user: Ref<auth::User<Data>>) -> StatusCode {
-    let mut lock = user.write().await;
+async fn root_delete(user: User) -> StatusCode {
+    let mut lock = JOBS.write().await;
 
-    if let Some(uuid) = lock.data.job.as_ref().map(|j| j.uuid) {
-        debug!("killing: {}", uuid);
-        lock.data.job = None;
+    if let Some(uuid) = lock.u2i.remove(&user) {
+        if let Some(..) = lock.i2j.remove(&uuid) {
+            debug!("killing: {}", uuid);
+        }
     }
 
     StatusCode::OK
 }
 
-async fn reader(user: Ref<auth::User<Data>>, kind: jobs::Standard) -> Result<Vec<u8>, StatusCode> {
-    let mut buf = [0; 4096];
+async fn reader(user: User, kind: Standard) -> Result<Vec<u8>, StatusCode> {
+    if let Some(job) = JOBS.read().await.by_user(&user).cloned() {
+        let mut buf = [0; 4096];
+        let mut lock = job.write().await;
+        let future = lock.read(kind, &mut buf);
 
-    match user.write().await.data.job.as_mut() {
-        None => Err(StatusCode::NOT_FOUND),
-        Some(job) => {
-            let future = job.read(kind, &mut buf);
-            match timeout(READ_TIMEOUT, future).await {
-                Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-                Ok(Ok(size)) => Ok(buf[..size].to_vec()),
-                Err(..) => Ok(Vec::new()),
-            }
-        }
+        return match timeout(READ_TIMEOUT, future).await {
+            Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+            Ok(Ok(size)) => Ok(buf[..size].to_vec()),
+            Err(..) => Ok(Vec::new()),
+        };
     }
+
+    Err(StatusCode::NOT_FOUND)
 }

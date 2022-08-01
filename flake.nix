@@ -1,15 +1,16 @@
 {
   description = "Profian Benefice";
 
-  inputs.cargo2nix.inputs.flake-compat.follows = "flake-compat";
-  inputs.cargo2nix.inputs.flake-utils.follows = "flake-utils";
-  inputs.cargo2nix.inputs.nixpkgs.follows = "nixpkgs";
-  inputs.cargo2nix.inputs.rust-overlay.follows = "rust-overlay";
-  inputs.cargo2nix.url = github:cargo2nix/cargo2nix;
+  inputs.crane.inputs.flake-compat.follows = "flake-compat";
+  inputs.crane.inputs.flake-utils.follows = "flake-utils";
+  inputs.crane.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.crane.url = github:ipetkov/crane;
+  inputs.enarx.inputs.fenix.follows = "fenix";
   inputs.enarx.inputs.flake-compat.follows = "flake-compat";
   inputs.enarx.inputs.flake-utils.follows = "flake-utils";
-  inputs.enarx.inputs.nixpkgs.follows = "nixpkgs";
   inputs.enarx.url = github:enarx/enarx;
+  inputs.fenix.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.fenix.url = github:nix-community/fenix;
   inputs.flake-compat.flake = false;
   inputs.flake-compat.url = github:edolstra/flake-compat;
   inputs.flake-utils.url = github:numtide/flake-utils;
@@ -20,8 +21,9 @@
 
   outputs = {
     self,
-    cargo2nix,
+    crane,
     enarx,
+    fenix,
     flake-utils,
     nixpkgs,
     ...
@@ -36,62 +38,65 @@
         system: let
           pkgs = import nixpkgs {
             inherit system;
-            overlays = [cargo2nix.overlays.default];
-          };
-          pkgsX86_64LinuxMusl = import nixpkgs {
-            inherit system;
-            crossSystem = {
-              config = "x86_64-unknown-linux-musl";
-            };
-            overlays = [cargo2nix.overlays.default];
+            overlays = [
+              # TODO: Add Enarx overlay
+              fenix.overlay
+            ];
           };
 
-          devRust = pkgs.rust-bin.fromRustupToolchainFile "${self}/rust-toolchain.toml";
-          devShell = pkgs.mkShell {
-            buildInputs = [
-              pkgs.openssl
-              pkgs.cargo2nix
+          rust = fenix.packages.${system}.fromToolchainFile {
+            file = "${self}/rust-toolchain.toml";
+            sha256 = "sha256-Et8XFyXhlf5OyVqJkxrmkxv44NRN54uU2CLUTZKUjtM=";
+          };
+          craneLib = (crane.mkLib pkgs).overrideToolchain rust;
 
-              devRust
-              enarx.packages.${system}.enarx
-            ];
+          mkBin = {
+            CARGO_BUILD_RUSTFLAGS ? null,
+            CARGO_BUILD_TARGET ? null,
+            CARGO_PROFILE ? null,
+          } @ args:
+            craneLib.buildPackage ({
+                src =
+                  pkgs.nix-gitignore.gitignoreRecursiveSource [
+                    "*.lock"
+                    "!Cargo.lock"
 
-            nativeBuildInputs = with pkgs; [
-              pkg-config
-            ];
+                    "*.toml"
+                    "!Cargo.toml"
+
+                    "*.md"
+                    "*.nix"
+                    "/.github"
+                    "LICENSE"
+                  ]
+                  self;
+
+                buildInputs = with pkgs; [
+                  openssl
+                ];
+
+                nativeBuildInputs = with pkgs; [
+                  pkg-config
+                ];
+              }
+              // (pkgs.lib.filterAttrs (n: v: v != null) args));
+
+          nativeBin = mkBin {};
+          x86_64LinuxMuslBin = mkBin {
+            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+            CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+          };
+
+          nativeDebugBin = mkBin {
+            CARGO_PROFILE = "";
+          };
+          x86_64LinuxMuslDebugBin = mkBin {
+            CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+            CARGO_PROFILE = "";
           };
 
           cargo.toml = builtins.fromTOML (builtins.readFile "${self}/Cargo.toml");
-
-          mkBin = args: pkgs:
-            ((pkgs.rustBuilder.makePackageSet ({
-                  packageFun = import "${self}/Cargo.nix";
-                  rustVersion = "1.62.0";
-                  workspaceSrc =
-                    pkgs.nix-gitignore.gitignoreRecursiveSource [
-                      "*.nix"
-                      "*.yml"
-                      "/.github"
-                      "flake.lock"
-                      "LICENSE"
-                      "rust-toolchain.toml"
-                    ]
-                    self;
-                }
-                // args))
-              .workspace
-              ."${cargo.toml.package.name}" {})
-            .bin;
-
-          mkReleaseBin = mkBin {};
-
-          nativeBin = mkReleaseBin pkgs;
-          x86_64LinuxMuslBin = mkReleaseBin pkgsX86_64LinuxMusl;
-
-          mkDebugBin = mkBin {release = false;};
-
-          nativeDebugBin = mkDebugBin pkgs;
-          x86_64LinuxMuslDebugBin = mkDebugBin pkgsX86_64LinuxMusl;
 
           buildImage = bin:
             pkgs.dockerTools.buildImage {
@@ -103,6 +108,19 @@
               config.Cmd = [cargo.toml.package.name];
               config.Env = ["PATH=${bin}/bin"];
             };
+
+          devShell = pkgs.mkShell {
+            buildInputs = [
+              pkgs.openssl
+
+              rust
+              enarx.packages.${system}.enarx
+            ];
+
+            nativeBuildInputs = with pkgs; [
+              pkg-config
+            ];
+          };
         in {
           formatter = pkgs.alejandra;
 

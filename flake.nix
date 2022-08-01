@@ -102,9 +102,9 @@
             pkgs.dockerTools.buildImage {
               inherit (cargo.toml.package) name;
               tag = cargo.toml.package.version;
-              contents = [
-                bin
-              ];
+              copyToRoot = pkgs.buildEnv {
+                paths = bin;
+              };
               config.Cmd = [cargo.toml.package.name];
               config.Env = ["PATH=${bin}/bin"];
             };

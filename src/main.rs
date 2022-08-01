@@ -19,7 +19,7 @@ use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 
-use axum::extract::Multipart;
+use axum::extract::{Multipart, Query};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::{get, post};
@@ -27,14 +27,31 @@ use axum::{Router, Server};
 
 use anyhow::{bail, Context as _};
 use clap::Parser;
+use humansize::{file_size_opts as options, FileSize};
+use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
+use reqwest::{Client, ClientBuilder};
+use serde::Deserialize;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+static HTTP: Lazy<Client> = Lazy::new(|| {
+    const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+    ClientBuilder::new().user_agent(USER_AGENT).build().unwrap()
+});
+
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
+
+lazy_static! {
+    static ref EXAMPLES: Vec<&'static str> = include_str!("../examples.txt")
+        .lines()
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+}
 
 #[derive(Debug, Default)]
 struct Data {
@@ -127,25 +144,40 @@ impl Args {
 
 #[derive(Copy, Clone, Debug)]
 struct Limits {
+    /// Size in megabytes
     size_limit_default: usize,
+    /// Size in megabytes
     size_limit_starred: usize,
     timeout_default: Duration,
     timeout_starred: Duration,
 }
 
 impl Limits {
-    pub fn decide(&self, star: bool) -> (Duration, usize) {
-        let size = match star {
-            false => self.size_limit_default,
-            true => self.size_limit_starred,
-        };
+    pub fn time_to_live(&self, star: bool) -> Duration {
+        if star {
+            self.timeout_default
+        } else {
+            self.timeout_starred
+        }
+    }
 
-        let ttl = match star {
-            false => self.timeout_default,
-            true => self.timeout_starred,
+    /// Get the maximum allowed wasm size in bytes.
+    pub fn size(&self, star: bool) -> usize {
+        let size_megabytes = if star {
+            self.size_limit_default
+        } else {
+            self.size_limit_starred
         };
+        size_megabytes * 1024 * 1024
+    }
 
-        (ttl, size)
+    pub fn size_human(&self, star: bool) -> String {
+        self.size(star)
+            .file_size(options::CONVENTIONAL)
+            .unwrap_or_else(|e| {
+                error!("Failed to get human readable size string: {e}");
+                "?".to_string()
+            })
     }
 }
 
@@ -201,6 +233,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let app = Router::new()
+        .route("/enarx_toml_fallback", get(enarx_toml_fallback))
         .route(
             "/out",
             post(move |user| reader(user, jobs::Standard::Output)),
@@ -236,14 +269,14 @@ async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl I
         }
     };
 
-    let (ttl, size) = limits.decide(star);
-
     let tmpl = IdxTemplate {
         toml: enarx_config::CONFIG_TEMPLATE,
+        examples: EXAMPLES.as_slice(),
         user,
         star,
-        size,
-        ttl: ttl.as_secs(),
+        size: limits.size(star),
+        size_human: limits.size_human(star),
+        ttl: limits.time_to_live(star).as_secs(),
     };
 
     HtmlTemplate(tmpl).into_response()
@@ -257,7 +290,9 @@ async fn root_post(
     limits: Limits,
     jobs: usize,
 ) -> impl IntoResponse {
-    let (ttl, size) = limits.decide(user.read().await.is_starred("enarx/enarx").await);
+    let star = user.read().await.is_starred("enarx/enarx").await;
+    let ttl = limits.time_to_live(star);
+    let size = limits.size(star);
 
     if user.read().await.data.job.is_some() {
         return Err(Redirect::to("/").into_response());
@@ -267,6 +302,8 @@ async fn root_post(
         return Err(redirect::too_many_workloads().into_response());
     }
 
+    let mut workload_type = None;
+    let mut slug = None;
     let mut wasm = None;
     let mut toml = None;
 
@@ -276,6 +313,40 @@ async fn root_post(
         .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
     {
         match field.name() {
+            Some("workloadType") => {
+                if field.content_type().is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                if workload_type.is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                workload_type = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?,
+                );
+            }
+
+            Some("slug") => {
+                if field.content_type().is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                if slug.is_some() {
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+
+                slug = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?,
+                );
+            }
+
             Some("wasm") => {
                 if Some("application/wasm") != field.content_type() {
                     return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response());
@@ -295,7 +366,7 @@ async fn root_post(
                     .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
                 {
                     len += chunk.len();
-                    if len > size * 1024 * 1024 {
+                    if len > size {
                         return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
                     }
 
@@ -340,8 +411,7 @@ async fn root_post(
         }
     }
 
-    let wasm = wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-    let toml = toml.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+    let workload_type = workload_type.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
 
     // Create the new job and get an identifier.
     let uuid = {
@@ -355,11 +425,7 @@ async fn root_post(
             return Err(redirect::too_many_workloads().into_response());
         }
 
-        let job = jobs::Job::new(command, wasm, toml).map_err(|e| {
-            error!("failed to spawn process: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
-        })?;
-
+        let job = jobs::Job::new(command, workload_type, slug, wasm, toml)?;
         let uuid = job.uuid;
         lock.data = Data { job: Some(job) };
         uuid
@@ -384,6 +450,48 @@ async fn root_post(
         user.read().await.uid
     );
     Ok((StatusCode::SEE_OTHER, [("Location", "/")]))
+}
+
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct EnarxTomlFallbackParams {
+    repo: String,
+    tag: String,
+}
+
+async fn enarx_toml_fallback(
+    _user: Ref<auth::User<Data>>,
+    Query(params): Query<EnarxTomlFallbackParams>,
+) -> Result<String, (StatusCode, String)> {
+    let EnarxTomlFallbackParams { repo, tag } = params;
+    let response = HTTP
+        .get(&format!(
+            "https://store.profian.com/api/v0.2.0/{repo}/_tag/{tag}/tree/Enarx.toml"
+        ))
+        .send()
+        .await;
+    let response = response.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get Enarx.toml from repo: {e}"),
+        )
+    })?;
+    let status_code = response.status();
+    let body = response.text().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to get string contents of Enarx.toml in response body: {e}"),
+        )
+    })?;
+
+    match status_code {
+        StatusCode::OK => Ok(body),
+        StatusCode::NOT_FOUND => Err((
+            StatusCode::NOT_FOUND,
+            format!("Couldn\'t find file in package '{repo}' with tag '{tag}'"),
+        )),
+        status_code => Err((status_code, body)),
+    }
 }
 
 async fn root_delete(user: Ref<auth::User<Data>>) -> StatusCode {

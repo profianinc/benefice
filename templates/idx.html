@@ -1,7 +1,5 @@
-<!--
-SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
-SPDX-License-Identifier: AGPL-3.0-only
--->
+<!-- SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com> -->
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <!DOCTYPE html>
 <html>
 
@@ -48,7 +46,7 @@ SPDX-License-Identifier: AGPL-3.0-only
     </nav>
     <section class="section">
         <div class="container">
-            <article class="message is-warning" id="warning_message" style="display: none">
+            <article class="message is-warning is-hidden" id="warning_message">
                 <div class="message-header">
                     <p>Warning</p>
                     <button class="delete" aria-label="delete" onclick="hideMessage()"></button>
@@ -57,7 +55,6 @@ SPDX-License-Identifier: AGPL-3.0-only
                     <span id="message"></span>
                 </div>
             </article>
-
             <div class="content">
                 <p>
                     This site allows you to run a test WebAssembly workload in an Enarx Keep.
@@ -73,61 +70,109 @@ SPDX-License-Identifier: AGPL-3.0-only
                     {% endif %}
                 </p>
             </div>
-
+            {% if user %}
             <form enctype="multipart/form-data" method="post" onsubmit="submitWorkloadForm()">
-                <div id="upload_file" class="file has-name" style="display: inline-block">
-                    <label class="file-label">
-                        <input class="file-input" type="file" name="wasm" accept="application/wasm"
-                            onchange="updateWorkloadSubmit()">
-                        <span class="file-cta">
-                            <span class="file-icon">
-                                <i class="fas fa-upload"></i>
+                <div class="field">
+                    <label>Retrieve workload from: </label>
+                    <div class="control">
+                        <label class="radio">
+                            <input type="radio" class="workloadRadio" name="workloadType" value="drawbridge"
+                                onchange="updateWorkloadForm()">
+                            Drawbridge
+                        </label>
+                        <label class="radio">
+                            <input type="radio" class="workloadRadio" name="workloadType" value="browser"
+                                onchange="updateWorkloadForm()">
+                            Browser
+                        </label>
+                    </div>
+                </div>
+                <div id="drawbridge-form" class="is-hidden">
+                    <div class="field" style="display: inline-block">
+                        <label>Select a workload:</label>
+                        <br />
+                        <div class="select">
+                            <select id="slugSelect" onchange="updateWorkloadForm()">
+                                {% for example in examples %}
+                                <option>{{ example }}</option>
+                                {% endfor %}
+                                <option>[CUSTOM]</option>
+                            </select>
+                        </div>
+                        <div id="customSlugDiv" class="is-hidden">
+                            <label>Enter your drawbridge slug:</label>
+                            <br />
+                            <input class="input" id="customSlug" type="text" placeholder="user/my-repo:0.1.0"
+                                oninput="updateWorkloadForm()">
+                        </div>
+                        <input id="submitSlug" type="hidden" name="slug" />
+                    </div>
+                </div>
+                <div id="browser-form" class="is-hidden">
+                    <div id="upload_file" class="file has-name" style="display: inline-block">
+                        <label class="file-label">
+                            <input id="wasmInput" class="file-input" type="file" name="wasm" accept="application/wasm"
+                                onchange="updateWorkloadForm()">
+                            <span class="file-cta">
+                                <span class="file-icon">
+                                    <i class="fas fa-upload"></i>
+                                </span>
+                                <span class="file-label">
+                                    Choose a Wasm file…
+                                </span>
                             </span>
-                            <span class="file-label">
-                                Choose a Wasm file…
+                            <span class="file-name">
+                                No file uploaded
                             </span>
-                        </span>
-                        <span class="file-name">
-                            No file uploaded
-                        </span>
-                    </label>
+                        </label>
+                    </div>
                 </div>
                 <span class="is-pulled-right p-2">
                     <span class="has-text-weight-bold">Workload Limits:</span>
-                    <span>{{ ttl }} seconds / {{ size }} MiB</span>
+                    <span>{{ ttl }} seconds / {{ size_human }}</span>
                 </span>
                 <br />
-
                 <input id="upload_toml" type="hidden" name="toml" />
                 <br />
-
-                <pre id="editor" style="min-height: 50vh; resize: none">{{ toml }}</pre>
-                <br />
-
-                <input id="upload_submit" type="submit" class="button is-primary is-large" value="Deploy"
-                    style="width: 100%" disabled />
+                <div id="editorDiv" class="is-hidden">
+                    <a href="https://enarx.dev/docs/running/enarx_toml">Configuration</a><span id="enarxTomlReadOnly"
+                        class="is-hidden"> (read only)</span>:
+                    <pre id="editor" style="min-height: 50vh; resize: none">{{ toml }}</pre>
+                    <pre id="enarx_toml_template_backup" class="is-hidden">{{ toml }}</pre>
+                </div>
+                <div id="upload_submit" class="is-hidden">
+                    <br />
+                    <input type="submit" class="button is-primary is-large" value="Deploy workload"
+                        style="width: 100%" />
+                </div>
             </form>
+            {% endif %}
         </div>
     </section>
     <!-- A quick workaround to get data into javascript without breaking anything is to use invisible tags -->
     {% if user %}<div id="authenticated" style="display: none"></div>{% endif %}
     <script>
-        function httpGetAsync(theUrl, callback) {
-            var xmlHttp = new XMLHttpRequest();
-            xmlHttp.onreadystatechange = function () {
-                if (xmlHttp.readyState == 4 && xmlHttp.status == 200)
-                    callback(xmlHttp.responseText);
-            }
-            xmlHttp.open("GET", theUrl, true); // true for asynchronous
-            xmlHttp.send(null);
-        }
-
         var authenticated = window.document.getElementById("authenticated");
         var queryParams = new URLSearchParams(window.location.search);
         var messageCode = queryParams.get('message');
         var messageHTML = [];
         var warningMessage = window.document.getElementById("warning_message");
         var messageDiv = window.document.getElementById("message");
+        var enarxTomlReadOnlyDiv = window.document.getElementById("enarxTomlReadOnly");
+        var editorDiv = window.document.getElementById("editorDiv");
+        var lastSlug = '';
+
+        function showTag(tag) {
+            if (tag) {
+                tag.classList.remove("is-hidden");
+            }
+        }
+
+        function hideTag(tag) {
+            if (tag) {
+                tag.classList.add("is-hidden");
+            }
+        }
 
         // SECURITY: Do not put query parameter values in messageHTML.
         switch (messageCode) {
@@ -140,53 +185,273 @@ SPDX-License-Identifier: AGPL-3.0-only
             }
         }
 
+        var enarxTomlEditor = null;
+
         if (authenticated) {
             var authLink = window.document.getElementById("auth");
             authLink.setAttribute("href", "/logout");
             authLink.textContent = "Logout";
+
+            enarxTomlEditor = ace.edit("editor");
+            enarxTomlEditor.session.setMode("ace/mode/toml");
         } else {
-            var uploadFile = window.document.getElementById("upload_file");
-            uploadFile.setAttribute("style", "display: none");
             messageHTML.push('Please <a href="/login">Log in</a> with GitHub to submit Wasm workloads.');
         }
 
         if (messageHTML.length !== 0) {
-            warningMessage.setAttribute("style", "");
+            showTag(warningMessage);
             messageDiv.innerHTML = messageHTML.join("<br />")
         }
-
-        var enarxTomlEditor = ace.edit("editor");
-        enarxTomlEditor.session.setMode("ace/mode/toml");
 
         $(".navbar-burger").click(function () {
             $(".navbar-burger").toggleClass("is-active");
             $(".navbar-menu").toggleClass("is-active");
         });
 
-        function hideMessage() {
-            warningMessage.setAttribute("style", "display: none");
+        function httpGetAsync(theUrl, callback) {
+            var xmlHttp = new XMLHttpRequest();
+            xmlHttp.onreadystatechange = function () {
+                if (xmlHttp.readyState == 4) {
+                    if (xmlHttp.status == 200) {
+                        callback(xmlHttp.responseText);
+                    } else {
+                        callback(null, xmlHttp.responseText);
+                    }
+                }
+            }
+            xmlHttp.open("GET", theUrl, true); // true for asynchronous 
+            xmlHttp.send(null);
         }
 
-        function submitWorkloadForm() {
-            var uploadToml = window.document.getElementById("upload_toml");
-            uploadToml.setAttribute("value", enarxTomlEditor.getValue());
+        function selectedSlugOption() {
+            return window.document.getElementById('slugSelect').value;
         }
 
-        function updateWorkloadSubmit() {
-            var fileInput = document.querySelector('#upload_file input[type=file]');
-            var uploadSubmit = window.document.getElementById("upload_submit");
+        function customSlugSelected() {
+            return selectedSlugOption() == '[CUSTOM]';
+        }
 
-            if (fileInput.files.length > 0) {
-                var fileName = document.querySelector('#upload_file .file-name');
-                fileName.textContent = fileInput.files[0].name;
-                uploadSubmit.removeAttribute("disabled");
+        function customSlug() {
+            if (!customSlugSelected()) {
+                return '';
+            }
+
+            return window.document.getElementById('customSlug').value;
+        }
+
+        function currentSlug() {
+            if (customSlugSelected()) {
+                return customSlug();
             } else {
-                uploadSubmit.setAttribute("disabled", "");
+                return selectedSlugOption();
             }
         }
 
+        // TODO: This is probably going to break with some slugs
+        function slugRepoTag(slug) {
+            if (slug.indexOf(':') == -1) {
+                return 'Missing \':\' followed by tag';
+            }
+
+            var split = slug.split(':');
+            var repo = split[0];
+            var tag = split[1];
+
+            if (repo == '') {
+                return 'Missing username and repo';
+            }
+
+            if (tag == '') {
+                return 'Missing tag';
+            }
+
+            return split;
+        }
+
+        function slugToEnarxTomlUrl(repoTag) {
+            return 'https://store.profian.com/api/v0.2.0/' + repo[0] + '/_tag/' + tag[1] + '/tree/Enarx.toml';
+        }
+
+        function getEnarxTomlFromDrawbridge(slug, callback) {
+            var repoAndTag = slugRepoTag(slug);
+
+            if (typeof repoAndTag == 'string') {
+                callback(null, 'Failed to parse slug: ' + repoAndTag);
+                return;
+            }
+
+            try {
+                httpGetAsync(slugToEnarxTomlUrl(repoAndTag), callback);
+            } catch (_error) {
+                // Fallback to asking the server to get it.
+                httpGetAsync('/enarx_toml_fallback?repo=' + repoAndTag[0] + '&tag=' + repoAndTag[1], callback);
+            }
+        }
+
+        function hideMessage() {
+            hideTag(warningMessage);
+        }
+
+        function getWorkloadType() {
+            var workloadRadios = window.document.getElementsByClassName('workloadRadio');
+
+            for (var ri = 0; ri < workloadRadios.length; ri++) {
+                var workloadRadio = workloadRadios[ri];
+
+                if (workloadRadio.checked) {
+                    return workloadRadio.value;
+                }
+            }
+
+            return 'none';
+        }
+
+        function submitWorkloadForm() {
+            switch (getWorkloadType()) {
+                case 'drawbridge': {
+                    var submitSlug = window.document.getElementById("submitSlug");
+                    submitSlug.value = currentSlug();
+                    break;
+                }
+                case 'browser': {
+                    var uploadToml = window.document.getElementById("upload_toml");
+                    uploadToml.setAttribute("value", enarxTomlEditor.getValue());
+                    break;
+                }
+                default: {
+                    break;
+                }
+            }
+        }
+
+        function updateWorkloadForm() {
+            var workloadType = getWorkloadType();
+            var workloadForms = {
+                drawbridge: window.document.getElementById('drawbridge-form'),
+                browser: window.document.getElementById('browser-form'),
+            };
+            var formKeys = Object.keys(workloadForms);
+
+            for (var fi in formKeys) {
+                var formKey = formKeys[fi];
+                var formTag = workloadForms[formKey];
+
+                if (workloadType == formKey) {
+                    showTag(formTag);
+                } else {
+                    hideTag(formTag);
+                }
+            }
+
+            var wasmInput = window.document.getElementById('wasmInput');
+            var uploadTomlInput = window.document.getElementById("upload_toml");
+
+            var uploadSubmit = window.document.getElementById("upload_submit");
+
+            switch (workloadType) {
+                case 'drawbridge': {
+                    var customSlugDiv = window.document.getElementById('customSlugDiv');
+                    wasmInput.setAttribute('disabled', '');
+                    uploadTomlInput.setAttribute('disabled', '');
+
+                    if (customSlugSelected()) {
+                        showTag(customSlugDiv);
+
+                        if (typeof slugRepoTag(customSlug()) != 'string') {
+                            showTag(uploadSubmit);
+                        } else {
+                            hideTag(uploadSubmit);
+                        }
+                    } else {
+                        hideTag(customSlugDiv);
+                        showTag(uploadSubmit);
+                    }
+
+                    showTag(editorDiv);
+                    showTag(enarxTomlReadOnlyDiv);
+                    enarxTomlEditor.setReadOnly(true);
+                    break;
+                }
+                case 'browser': {
+                    lastSlug = '';
+
+                    wasmInput.removeAttribute('disabled');
+                    uploadTomlInput.removeAttribute('disabled');
+
+                    enarxTomlEditor.setValue(
+                        window.document.getElementById('enarx_toml_template_backup').innerText,
+                        -1
+                    );
+
+                    var fileInput = document.querySelector('#upload_file input[type=file]');
+
+                    if (fileInput.files.length > 0) {
+                        var fileName = document.querySelector('#upload_file .file-name');
+                        fileName.textContent = fileInput.files[0].name;
+                        showTag(uploadSubmit);
+                    } else {
+                        hideTag(uploadSubmit);
+                    }
+
+                    showTag(editorDiv);
+                    hideTag(enarxTomlReadOnlyDiv);
+                    enarxTomlEditor.setReadOnly(false);
+                    break;
+                }
+                default: {
+                    break;
+                }
+            }
+
+            // Let it run by itself on the setInterval timeout below.
+            // Removing this condition will result in a flood of requests when users type customs slugs.
+            if (!customSlugSelected()) {
+                refreshEnarxToml();
+            }
+        }
+
+        function refreshEnarxToml() {
+            function shouldUpdate() {
+                return getWorkloadType() === 'drawbridge';
+            }
+
+            if (!shouldUpdate()) {
+                return;
+            }
+
+            var slug = currentSlug();
+
+            if (lastSlug != slug) {
+                if (slug == '') {
+                    enarxTomlEditor.setValue('# Waiting…', -1);
+                } else {
+                    enarxTomlEditor.setValue('# Fetching Enarx.toml from ' + slug + '…', -1);
+
+                    getEnarxTomlFromDrawbridge(
+                        slug,
+                        function (body, error) {
+                            if (!shouldUpdate()) {
+                                return;
+                            }
+
+                            if (error) {
+                                enarxTomlEditor.setValue('# Failed to pull Enarx.toml: ' + error, -1);
+                                return;
+                            }
+
+                            enarxTomlEditor.setValue(body, -1);
+                        }
+                    )
+                }
+
+                lastSlug = slug;
+            }
+        }
+
+        setInterval(refreshEnarxToml, 1000);
+
         if (performance.navigation.type === performance.navigation.TYPE_RELOAD) {
-            updateWorkloadSubmit()
+            updateWorkloadForm();
         }
     </script>
 

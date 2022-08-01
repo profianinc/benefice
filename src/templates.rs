@@ -7,11 +7,13 @@ use axum::response::{Html, IntoResponse, Response};
 
 #[derive(Template)]
 #[template(path = "idx.html")]
-pub struct IdxTemplate {
+pub struct IdxTemplate<'a> {
     pub toml: &'static str,
+    pub examples: &'a [&'static str],
     pub user: bool,
     pub star: bool,
     pub size: usize,
+    pub size_human: String,
     pub ttl: u64,
 }
 

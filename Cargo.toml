@@ -22,4 +22,5 @@ num_cpus = "1.13.1"
 serde = { version = "1.0.136", default-features = false }
 serde_json = { version = "1.0.82", default-features = false }
 enarx-config = { version = "0.6.1", default-features = false }
-
+humansize = { version = "1.1.1", default-features = false }
+lazy_static = { version = "1.4.0", default-features = false }

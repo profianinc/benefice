@@ -8,20 +8,15 @@ use axum::async_trait;
 use axum::extract::{FromRequest, RequestParts};
 use axum::response::Response;
 use once_cell::sync::Lazy;
-use reqwest::{Client, ClientBuilder};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::error;
 
 use crate::reference::Ref;
+use crate::HTTP;
 
 use super::Session;
-
-static HTTP: Lazy<Client> = Lazy::new(|| {
-    const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-    ClientBuilder::new().user_agent(USER_AGENT).build().unwrap()
-});
 
 const STAR_TIMEOUT: Duration = Duration::from_secs(6 * 60 * 60);
 static STAR: Lazy<RwLock<HashMap<(usize, &'static str), bool>>> =

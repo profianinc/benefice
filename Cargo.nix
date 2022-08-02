@@ -1998,6 +1998,7 @@ in
     features = builtins.concatLists [
       [ "bytes" ]
       [ "default" ]
+      [ "fs" ]
       [ "io-std" ]
       [ "io-util" ]
       [ "libc" ]

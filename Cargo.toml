@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 axum = { version = "0.5.5", features = ["multipart", "headers"] }
 askama = { version = "0.11.1", default-features = false }
-tokio = { version = "1.19.2", features = ["macros", "process", "rt-multi-thread", "io-util", "sync"] }
+tokio = { version = "1.19.2", features = ["macros", "process", "rt-multi-thread", "io-util", "fs", "sync"] }
 tracing = { version = "0.1.35", default-features = false, features = ["std", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
 tower-http = { version = "0.3.0", features = ["trace"] }

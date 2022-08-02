@@ -152,6 +152,12 @@
     <!-- A quick workaround to get data into javascript without breaking anything is to use invisible tags -->
     {% if user %}<div id="authenticated" style="display: none"></div>{% endif %}
     <script>
+        function sanitizeHtml(text) {
+            var element = document.createElement('div');
+            element.innerText = text;
+            return element.innerHTML;
+        }
+
         var authenticated = window.document.getElementById("authenticated");
         var queryParams = new URLSearchParams(window.location.search);
         var messageCode = queryParams.get('message');
@@ -174,10 +180,31 @@
             }
         }
 
-        // SECURITY: Do not put query parameter values in messageHTML.
+        // SECURITY: Do not put unsanitized user input in html.
         switch (messageCode) {
             case 'too_many_workloads': {
                 messageHTML.push("Too many workloads are running on this server! Please try again later.");
+                break;
+            }
+            case 'too_many_listeners': {
+                var max = queryParams.get('max');
+                messageHTML.push(
+                    "You are trying to listen on more than " + sanitizeHtml(max) + " ports. Please remove some of them and try again."
+                );
+                break;
+            }
+            case 'illegal_ports': {
+                var ports = queryParams.get('ports').split(',').join(', ');
+                var range = queryParams.get('range').split('-');
+                messageHTML.push(
+                    "Some listen port(s) (" + sanitizeHtml(ports) + ") are outside of the acceptable range of " +
+                    sanitizeHtml(range[0]) + "-" + sanitizeHtml(range[1]) + ". Please change them and try again."
+                );
+                break;
+            }
+            case 'port_conflicts': {
+                var ports = queryParams.get('ports').split(',').join(', ');
+                messageHTML.push("Some listen port(s) are already in use (" + sanitizeHtml(ports) + "). Please change them and try again.");
                 break;
             }
             default: {

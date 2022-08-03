@@ -176,6 +176,7 @@
         var enarxTomlReadOnlyDiv = window.document.getElementById("enarxTomlReadOnly");
         var editorDiv = window.document.getElementById("editorDiv");
         var lastSlug = '';
+        var customSlugValue = '[CUSTOM]';
 
         function showTag(tag) {
             if (tag) {
@@ -276,7 +277,7 @@
         }
 
         function customSlugSelected() {
-            return selectedSlugOption() == '[CUSTOM]';
+            return selectedSlugOption() == customSlugValue;
         }
 
         function customSlug() {
@@ -292,6 +293,29 @@
                 return customSlug();
             } else {
                 return selectedSlugOption();
+            }
+        }
+
+        function exampleSlugExists(slug) {
+            return document.getElementById('slugSelect').innerHTML.indexOf(slug) !== -1;
+        }
+
+        function setSlugParam(slug) {
+            if (!slug) {
+                queryParams.delete('slug');
+            } else {
+                queryParams.set('slug', slug);
+            }
+
+            history.replaceState(null, null, "?" + queryParams.toString());
+        }
+
+        function setSlugField(slug) {
+            if (exampleSlugExists(slug)) {
+                window.document.getElementById('slugSelect').value = slug;
+            } else {
+                window.document.getElementById('slugSelect').value = customSlugValue;
+                window.document.getElementById('customSlug').value = slug;
             }
         }
 
@@ -419,6 +443,7 @@
                         showTag(uploadSubmit);
                     }
 
+                    setSlugParam(currentSlug());
                     showTag(editorDiv);
                     showTag(enarxTomlReadOnlyDiv);
                     enarxTomlEditor.setReadOnly(true);
@@ -445,6 +470,7 @@
                         hideTag(uploadSubmit);
                     }
 
+                    setSlugParam();
                     showTag(editorDiv);
                     hideTag(enarxTomlReadOnlyDiv);
                     enarxTomlEditor.setReadOnly(false);
@@ -498,6 +524,15 @@
 
                 lastSlug = slug;
             }
+        }
+
+        var querySlug = queryParams.get('slug');
+
+        if (querySlug) {
+            var form = window.document.getElementById('workloadForm')
+            form.elements["workloadType"].value = 'drawbridge';
+            setSlugField(querySlug);
+            updateWorkloadForm();
         }
 
         setInterval(refreshEnarxToml, 1000);

@@ -16,6 +16,16 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.7.1/mode-toml.min.js"
         integrity="sha512-8QOETbDki7akpeMrYulOWuKx9MRoOYo7VqMuudle9ek/WN/pXcWhV6GL+tSyAoLigUwFuJHiN31Sao+trgPoPQ=="
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+        .unselectable {
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            color: #cc0000;
+        }
+    </style>
 </head>
 
 <body>
@@ -25,7 +35,7 @@
                 <img src="https://try.enarx.dev/img/enarx.png" alt="Enarx">
             </a>
 
-            <div class="navbar-item p-0" style="font-size:0.7rem;">secured by</div>
+            <div class="navbar-item p-0 unselectable" style="font-size:0.7rem;">secured by</div>
 
             <a class="navbar-item" href="https://profian.com">
                 <img src="https://try.enarx.dev/img/profian.svg" alt="Profian" style="width: 100px">

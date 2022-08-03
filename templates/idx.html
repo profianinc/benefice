@@ -134,8 +134,7 @@
                 <input id="upload_toml" type="hidden" name="toml" />
                 <br />
                 <div id="editorDiv" class="is-hidden">
-                    <a href="https://enarx.dev/docs/running/enarx_toml">Configuration</a><span id="enarxTomlReadOnly"
-                        class="is-hidden"> (read only)</span>:
+                    <a href="https://enarx.dev/docs/running/enarx_toml">Configuration</a>:
                     <pre id="editor" style="min-height: 50vh; resize: none">{{ toml }}</pre>
                     <pre id="enarx_toml_template_backup" class="is-hidden">{{ toml }}</pre>
                 </div>
@@ -163,8 +162,8 @@
         var messageHTML = [];
         var warningMessage = window.document.getElementById("warning_message");
         var messageDiv = window.document.getElementById("message");
-        var enarxTomlReadOnlyDiv = window.document.getElementById("enarxTomlReadOnly");
         var editorDiv = window.document.getElementById("editorDiv");
+        var initialDrawbridgeToml = '';
         var lastSlug = '';
 
         function showTag(tag) {
@@ -333,20 +332,41 @@
         }
 
         function submitWorkloadForm() {
+            var sendToml = false;
+            var currentToml = enarxTomlEditor.getValue();
+
             switch (getWorkloadType()) {
                 case 'drawbridge': {
                     var submitSlug = window.document.getElementById("submitSlug");
                     submitSlug.value = currentSlug();
+
+                    if (initialDrawbridgeToml !== currentToml) {
+                        // The toml will be sent and the wasm must be pulled from drawbridge.
+                        sendToml = true;
+                    } else {
+                        // Only the slug will be sent.
+                        // The workload assets will be pulled securely from within the Enarx Keep.
+                    }
+
                     break;
                 }
                 case 'browser': {
-                    var uploadToml = window.document.getElementById("upload_toml");
-                    uploadToml.setAttribute("value", enarxTomlEditor.getValue());
+                    // The wasm and toml will both be sent.
+                    sendToml = true;
                     break;
                 }
                 default: {
                     break;
                 }
+            }
+
+            var uploadToml = window.document.getElementById("upload_toml");
+
+            if (sendToml) {
+                uploadToml.removeAttribute('disabled');
+                uploadToml.setAttribute("value", currentToml);
+            } else {
+                uploadToml.setAttribute('disabled', '');
             }
         }
 
@@ -370,15 +390,12 @@
             }
 
             var wasmInput = window.document.getElementById('wasmInput');
-            var uploadTomlInput = window.document.getElementById("upload_toml");
-
             var uploadSubmit = window.document.getElementById("upload_submit");
 
             switch (workloadType) {
                 case 'drawbridge': {
                     var customSlugDiv = window.document.getElementById('customSlugDiv');
                     wasmInput.setAttribute('disabled', '');
-                    uploadTomlInput.setAttribute('disabled', '');
 
                     if (customSlugSelected()) {
                         showTag(customSlugDiv);
@@ -394,20 +411,18 @@
                     }
 
                     showTag(editorDiv);
-                    showTag(enarxTomlReadOnlyDiv);
-                    enarxTomlEditor.setReadOnly(true);
                     break;
                 }
                 case 'browser': {
                     lastSlug = '';
 
                     wasmInput.removeAttribute('disabled');
-                    uploadTomlInput.removeAttribute('disabled');
 
                     enarxTomlEditor.setValue(
                         window.document.getElementById('enarx_toml_template_backup').innerText,
                         -1
                     );
+                    initialDrawbridgeToml = '';
 
                     var fileInput = document.querySelector('#upload_file input[type=file]');
 
@@ -420,8 +435,6 @@
                     }
 
                     showTag(editorDiv);
-                    hideTag(enarxTomlReadOnlyDiv);
-                    enarxTomlEditor.setReadOnly(false);
                     break;
                 }
                 default: {
@@ -450,8 +463,10 @@
             if (lastSlug != slug) {
                 if (slug == '') {
                     enarxTomlEditor.setValue('# Waiting…', -1);
+                    initialDrawbridgeToml = '';
                 } else {
                     enarxTomlEditor.setValue('# Fetching Enarx.toml from ' + slug + '…', -1);
+                    initialDrawbridgeToml = '';
 
                     getEnarxTomlFromDrawbridge(
                         slug,
@@ -462,10 +477,12 @@
 
                             if (error) {
                                 enarxTomlEditor.setValue('# Failed to pull Enarx.toml: ' + error, -1);
+                                initialDrawbridgeToml = '';
                                 return;
                             }
 
                             enarxTomlEditor.setValue(body, -1);
+                            initialDrawbridgeToml = body;
                         }
                     )
                 }

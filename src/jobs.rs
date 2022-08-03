@@ -1,8 +1,10 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use crate::drawbridge::Slug;
 use crate::ports;
 
+use std::io::Write;
 use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
@@ -19,6 +21,38 @@ use tracing::{debug, error};
 use uuid::Uuid;
 
 static COUNT: AtomicUsize = AtomicUsize::new(0);
+
+fn enarx_deploy(cmd: &str, slug: &str) -> Result<Child, Response> {
+    Command::new(cmd)
+        .arg("deploy")
+        .arg(slug)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| {
+            error!("failed to spawn process: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })
+}
+
+fn enarx_run(cmd: &str, toml: &NamedTempFile, wasm: &NamedTempFile) -> Result<Child, Response> {
+    Command::new(cmd)
+        .arg("run")
+        .arg("--wasmcfgfile")
+        .arg(toml.path())
+        .arg(wasm.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| {
+            error!("failed to spawn process: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })
+}
 
 #[derive(Debug)]
 pub enum WorkloadType {
@@ -70,11 +104,11 @@ impl Job {
         COUNT.load(Ordering::SeqCst)
     }
 
-    pub fn new(
+    pub async fn new<'a>(
         cmd: String,
         workload_type: String,
         slug: Option<String>,
-        wasm: Option<NamedTempFile>,
+        mut wasm: Option<NamedTempFile>,
         toml: Option<NamedTempFile>,
         reserved_ports: Vec<u16>,
     ) -> Result<Self, Response> {
@@ -87,18 +121,29 @@ impl Job {
                 let slug = slug
                     .as_ref()
                     .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-                Command::new(cmd)
-                    .arg("deploy")
-                    .arg(slug)
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .kill_on_drop(true)
-                    .spawn()
-                    .map_err(|e| {
-                        error!("failed to spawn process: {e}");
-                        StatusCode::INTERNAL_SERVER_ERROR.into_response()
-                    })?
+
+                match &toml {
+                    None => enarx_deploy(&cmd, slug)?,
+                    Some(toml) => {
+                        let slug = Slug::new(slug.clone())
+                            .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+                        let wasm_bytes = slug
+                            .read("main.wasm")
+                            .await
+                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?
+                            .bytes()
+                            .await
+                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+                        let mut new_wasm = tempfile::NamedTempFile::new()
+                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+                        new_wasm
+                            .write_all(&wasm_bytes)
+                            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+                        let child = enarx_run(&cmd, toml, &new_wasm)?;
+                        wasm = Some(new_wasm);
+                        child
+                    }
+                }
             }
             WorkloadType::Browser => {
                 let wasm = wasm
@@ -107,20 +152,7 @@ impl Job {
                 let toml = toml
                     .as_ref()
                     .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-                Command::new(cmd)
-                    .arg("run")
-                    .arg("--wasmcfgfile")
-                    .arg(toml.path())
-                    .arg(wasm.path())
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .kill_on_drop(true)
-                    .spawn()
-                    .map_err(|e| {
-                        error!("failed to spawn process: {e}");
-                        StatusCode::INTERNAL_SERVER_ERROR.into_response()
-                    })?
+                enarx_run(&cmd, toml, wasm)?
             }
         };
 

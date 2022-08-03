@@ -6,6 +6,7 @@
 
 mod auth;
 mod data;
+mod drawbridge;
 mod jobs;
 mod ports;
 mod redirect;
@@ -14,6 +15,7 @@ mod secret;
 mod templates;
 
 use crate::data::Data;
+use crate::drawbridge::Slug;
 use crate::reference::Ref;
 use crate::templates::{HtmlTemplate, IdxTemplate, JobTemplate};
 
@@ -35,7 +37,6 @@ use humansize::{file_size_opts as options, FileSize};
 use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use reqwest::{Client, ClientBuilder};
-use serde::Deserialize;
 use tokio::fs::read_to_string;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
@@ -458,10 +459,9 @@ async fn root_post(
             let slug = slug
                 .as_ref()
                 .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-            let (repo, tag) = slug
-                .split_once(':')
-                .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-            get_enarx_config_from_drawbridge(repo, tag)
+            let slug =
+                Slug::new(slug.clone()).ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+            slug.read("Enarx.toml")
                 .await
                 .map_err(|e| {
                     debug!("failed to get toml from drawbridge with tag: {}: {e}", slug);
@@ -521,7 +521,7 @@ async fn root_post(
             return Err(redirect::too_many_workloads().into_response());
         }
 
-        let job = jobs::Job::new(command, workload_type, slug, wasm, toml, ports)?;
+        let job = jobs::Job::new(command, workload_type, slug, wasm, toml, ports).await?;
         let uuid = job.uuid;
         lock.data = Data::new(Some(job));
         uuid
@@ -548,30 +548,11 @@ async fn root_post(
     Ok((StatusCode::SEE_OTHER, [("Location", "/")]))
 }
 
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct EnarxTomlFallbackParams {
-    repo: String,
-    tag: String,
-}
-
-async fn get_enarx_config_from_drawbridge(
-    repo: &str,
-    tag: &str,
-) -> Result<reqwest::Response, reqwest::Error> {
-    HTTP.get(&format!(
-        "https://store.profian.com/api/v0.2.0/{repo}/_tag/{tag}/tree/Enarx.toml"
-    ))
-    .send()
-    .await
-}
-
-async fn enarx_toml_fallback(
+async fn enarx_toml_fallback<'a>(
     _user: Ref<auth::User<Data>>,
-    Query(params): Query<EnarxTomlFallbackParams>,
+    Query(slug): Query<Slug>,
 ) -> Result<String, (StatusCode, String)> {
-    let EnarxTomlFallbackParams { repo, tag } = params;
-    let response = get_enarx_config_from_drawbridge(&repo, &tag).await;
+    let response = slug.read("Enarx.toml").await;
     let response = response.map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -590,7 +571,7 @@ async fn enarx_toml_fallback(
         StatusCode::OK => Ok(body),
         StatusCode::NOT_FOUND => Err((
             StatusCode::NOT_FOUND,
-            format!("Couldn\'t find file in package '{repo}' with tag '{tag}'"),
+            format!("Couldn\'t find file in package {slug}"),
         )),
         status_code => Err((status_code, body)),
     }

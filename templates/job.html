@@ -64,14 +64,14 @@
         });
     }
 
-    function kill() {
+    function kill(url) {
       return fetch('/', { method: 'DELETE' })
         .then((response) => {
           if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
+            console.error(`HTTP error! Status: ${response.status}`);
           }
 
-          window.location.replace("/");
+          window.location.replace(url);
         })
     }
 
@@ -110,7 +110,7 @@
     <div class="container" id="output">
       <pre id="console">Starting workload...<br/></pre>
       <br />
-      <button class="button is-danger" onclick="kill()">Kill</button>
+      <button class="button is-danger" onclick="kill('/')">Kill</button>
     </div>
   </section>
   <section class="bd-index-section" style="--bd-section-h: 229deg;">
@@ -314,22 +314,42 @@
       </a>
     </div>
     <div class="bd-screenshots">
-      <a class="bd-screenshot " href="https://github.com/enarx/GreenhouseMonitor" target="_blank">
-        <img src="https://try.enarx.dev/img/greenhouse.png" width="700" height="350" alt="GreenhouseMonitor">
-        <button class="button is-info" style="width:100%; margin-top:10px;">Greenhouse Monitor</button>
-      </a>
-      <a class="bd-screenshot " href="https://github.com/enarx/cryptle" target="_blank">
-        <img src="https://try.enarx.dev/img/cryptle.png" width="700" height="350" alt="Cryptle">
-        <button class="button is-info" style="width:100%; margin-top:10px;">Cryptle</button>
-      </a>
-      <a class="bd-screenshot " href="https://github.com/enarx/codex/tree/main/Rust/tokio-http" target="_blank">
-        <img src="https://try.enarx.dev/img/tokio-minihttp.png" width="700" height="350" alt="Tokio Mini HTTP">
-        <button class="button is-info" style="width:100%; margin-top:10px;">Tokio Mini HTTP</button>
-      </a>
-      <a class="bd-screenshot " href="https://github.com/enarx/codex/tree/main/Rust/mio-echo-tcp" target="_blank">
-        <img src="https://try.enarx.dev/img/tokio-mio.png" width="700" height="350" alt="Mio TCP Echo Server">
-        <button class="button is-info" style="width:100%; margin-top:10px;">Mio TCP Echo Server</button>
-      </a>
+      <div>
+        <a class="bd-screenshot" href="https://github.com/enarx/GreenhouseMonitor" target="_blank">
+          <img src="https://try.enarx.dev/img/greenhouse.png" width="700" height="350" alt="GreenhouseMonitor">
+          <button class="button is-info" style="width:100%; margin-top:10px;">Greenhouse Monitor</button>
+        </a>
+        <button class="button is-primary" style="width:100%; margin-top:10px;"
+          data-href='{{ self.get_slug_url("greenhouse-monitor-csharp") }}'
+          onclick="kill(this.getAttribute('data-href'))">Deploy</button>
+      </div>
+      <div>
+        <a class="bd-screenshot" href="https://github.com/enarx/cryptle" target="_blank">
+          <img src="https://try.enarx.dev/img/cryptle.png" width="700" height="350" alt="Cryptle">
+          <button class="button is-info" style="width:100%; margin-top:10px;">Cryptle</button>
+        </a>
+        <button class="button is-primary" style="width:100%; margin-top:10px;"
+          data-href='{{ self.get_slug_url("cryptle-rust") }}'
+          onclick="kill(this.getAttribute('data-href'))">Deploy</button>
+      </div>
+      <div>
+        <a class="bd-screenshot" href="https://github.com/enarx/codex/tree/main/Rust/tokio-http" target="_blank">
+          <img src="https://try.enarx.dev/img/tokio-minihttp.png" width="700" height="350" alt="Tokio Mini HTTP">
+          <button class="button is-info" style="width:100%; margin-top:10px;">Tokio Mini HTTP</button>
+        </a>
+        <button class="button is-primary" style="width:100%; margin-top:10px;"
+          data-href='{{ self.get_slug_url("http-rust-tokio") }}'
+          onclick="kill(this.getAttribute('data-href'))">Deploy</button>
+      </div>
+      <div>
+        <a class="bd-screenshot" href="https://github.com/enarx/codex/tree/main/Rust/mio-echo-tcp" target="_blank">
+          <img src="https://try.enarx.dev/img/tokio-mio.png" width="700" height="350" alt="Mio TCP Echo Server">
+          <button class="button is-info" style="width:100%; margin-top:10px;">Mio TCP Echo Server</button>
+        </a>
+        <button class="button is-primary" style="width:100%; margin-top:10px;"
+          data-href='{{ self.get_slug_url("echo-tcp-rust-mio") }}'
+          onclick="kill(this.getAttribute('data-href'))">Deploy</button>
+      </div>
     </div>
   </section>
   <section class="bd-index-section" style="--bd-section-h: 330deg;">

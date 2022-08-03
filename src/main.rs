@@ -137,7 +137,7 @@ impl Args {
         };
 
         let oidc = auth::Oidc {
-            server: self.url,
+            server: self.url.clone(),
             issuer: self.oidc_issuer,
             client: self.oidc_client,
             secret: self.oidc_secret.map(|sf| sf.into()),
@@ -146,6 +146,7 @@ impl Args {
 
         let other = Other {
             addr: self.addr,
+            url: self.url,
             jobs: self.jobs,
             port_range: match (self.port_min, self.port_max) {
                 (0, 0) => None,
@@ -206,6 +207,7 @@ impl Limits {
 #[derive(Clone, Debug)]
 struct Other {
     addr: SocketAddr,
+    url: auth::Url,
     jobs: usize,
     port_range: Option<Range<u16>>,
     listen_max: Option<u16>,
@@ -268,7 +270,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route(
             "/",
-            get(move |user| root_get(user, limits))
+            get(move |user| root_get(user, limits, other.url))
                 .post(move |user, mp| {
                     root_post(
                         user,
@@ -291,12 +293,20 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl IntoResponse {
+async fn root_get(
+    user: Option<Ref<auth::User<Data>>>,
+    limits: Limits,
+    url: auth::Url,
+) -> impl IntoResponse {
     let (user, star) = match user {
         None => (false, false),
         Some(user) => {
-            if user.read().await.data.job().is_some() {
-                return HtmlTemplate(JobTemplate).into_response();
+            if let Some(job) = user.read().await.data.job() {
+                return HtmlTemplate(JobTemplate {
+                    url: &url,
+                    listen_ports: job.reserved_ports(),
+                })
+                .into_response();
             }
 
             (true, user.read().await.is_starred("enarx/enarx").await)
@@ -495,6 +505,7 @@ async fn root_post(
         // Check if the port is outside of the range of allowed ports
         let illegal_ports = ports
             .iter()
+            .map(|(port, _)| port)
             .filter(|port| !port_range.contains(port))
             .cloned()
             .collect::<Vec<_>>();
@@ -505,7 +516,12 @@ async fn root_post(
     }
 
     // Check if a port is already in use by another running workload
-    ports::try_reserve(&ports)
+    let ports_no_prot = ports
+        .iter()
+        .map(|(port, _)| port)
+        .cloned()
+        .collect::<Vec<_>>();
+    ports::try_reserve(&ports_no_prot)
         .await
         .map_err(|port_conflicts| redirect::port_conflicts(&port_conflicts).into_response())?;
 

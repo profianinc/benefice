@@ -12,7 +12,7 @@ lazy_static! {
     static ref PORTS_IN_USE: Arc<RwLock<HashSet<u16>>> = Arc::new(RwLock::new(HashSet::new()));
 }
 
-pub fn get_listen_ports(toml: &str) -> anyhow::Result<Vec<u16>> {
+pub fn get_listen_ports(toml: &str) -> anyhow::Result<Vec<(u16, Protocol)>> {
     let config = toml::from_str::<Config>(toml).with_context(|| "failed to parse enarx config")?;
 
     let ports = config
@@ -25,7 +25,7 @@ pub fn get_listen_ports(toml: &str) -> anyhow::Result<Vec<u16>> {
             | File::Stderr { .. }
             | File::Connect { .. } => None,
             File::Listen { port, prot, .. } => match prot {
-                Protocol::Tls | Protocol::Tcp => Some(port),
+                Protocol::Tls | Protocol::Tcp => Some((port, prot)),
             },
         })
         .collect();

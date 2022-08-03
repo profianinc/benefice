@@ -12,6 +12,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use anyhow::anyhow;
+use enarx_config::Protocol;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
@@ -52,7 +53,7 @@ pub struct Job {
     slug: Option<String>,
     wasm: Option<NamedTempFile>,
     toml: Option<NamedTempFile>,
-    reserved_ports: Vec<u16>,
+    reserved_ports: Vec<(u16, Protocol)>,
 }
 
 impl Drop for Job {
@@ -76,7 +77,7 @@ impl Job {
         slug: Option<String>,
         wasm: Option<NamedTempFile>,
         toml: Option<NamedTempFile>,
-        reserved_ports: Vec<u16>,
+        reserved_ports: Vec<(u16, Protocol)>,
     ) -> Result<Self, Response> {
         let workload_type = WorkloadType::from_str(&workload_type).map_err(|e| {
             debug!("Failed to parse workload type: {e}");
@@ -137,6 +138,10 @@ impl Job {
         })
     }
 
+    pub fn reserved_ports(&self) -> &Vec<(u16, Protocol)> {
+        &self.reserved_ports
+    }
+
     pub async fn read(&mut self, kind: Standard, buffer: &mut [u8]) -> std::io::Result<usize> {
         match kind {
             Standard::Output => self.exec.stdout.as_mut().unwrap().read(buffer).await,
@@ -146,7 +151,13 @@ impl Job {
 
     pub async fn kill(&mut self) {
         let _ = self.exec.kill().await;
-        ports::free(&self.reserved_ports).await;
+        let ports_no_prot = self
+            .reserved_ports
+            .iter()
+            .map(|(port, _)| port)
+            .cloned()
+            .collect::<Vec<_>>();
+        ports::free(&ports_no_prot).await;
         self.reserved_ports.clear();
     }
 }

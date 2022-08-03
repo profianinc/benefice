@@ -99,6 +99,23 @@
     </div>
 
     <div class="container" id="output">
+      <p>
+      {% if !listen_ports.is_empty() %}
+      <ul>
+        {% for (port, protocol) in listen_ports %}
+        <li>
+          {% match protocol %}
+          {% when Protocol::Tls %}TLS on port {{ port }}
+          {% when Protocol::Tcp %}TCP on port {{ port }}
+          {% endmatch %}
+          (<a href="{{ self.create_url(port) }}">link</a>)
+        </li>
+        {% endfor %}
+      </ul>
+      </p>
+      {% else %}
+      <!-- No configured open ports for this workload -->
+      {% endif %}
       <pre id="console">Starting workload...<br/></pre>
       <br />
       <button class="button is-danger" onclick="kill()">Kill</button>

@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use crate::auth::Url;
+
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
+use enarx_config::Protocol;
 
 #[derive(Template)]
 #[template(path = "idx.html")]
@@ -19,7 +22,18 @@ pub struct IdxTemplate<'a> {
 
 #[derive(Template)]
 #[template(path = "job.html")]
-pub struct JobTemplate;
+pub struct JobTemplate<'a> {
+    pub url: &'a Url,
+    pub listen_ports: &'a [(u16, Protocol)],
+}
+
+impl<'a> JobTemplate<'a> {
+    pub fn create_url(&self, port: &&u16) -> String {
+        let mut url = self.url.clone();
+        let _ = url.set_port(Some(**port));
+        url.to_string()
+    }
+}
 
 pub struct HtmlTemplate<T>(pub T);
 

@@ -30,7 +30,7 @@
 
 <body>
     <nav class="navbar is-light" role="navigation" aria-label="main navigation">
-        <div class="navbar-brand">
+        <div class="navbar-brand" style="width: 100%">
             <a class="navbar-item" href="https://enarx.dev">
                 <img src="https://try.enarx.dev/img/enarx.png" alt="Enarx">
             </a>
@@ -40,9 +40,6 @@
             <a class="navbar-item" href="https://profian.com">
                 <img src="https://try.enarx.dev/img/profian.svg" alt="Profian" style="width: 100px">
             </a>
-        </div>
-
-        <div class="navbar-menu">
             <div class="navbar-end">
                 <div class="navbar-item">
                     <div class="buttons">
@@ -238,11 +235,6 @@
             showTag(warningMessage);
             messageDiv.innerHTML = messageHTML.join("<br />")
         }
-
-        $(".navbar-burger").click(function () {
-            $(".navbar-burger").toggleClass("is-active");
-            $(".navbar-menu").toggleClass("is-active");
-        });
 
         function httpGetAsync(theUrl, callback) {
             var xmlHttp = new XMLHttpRequest();

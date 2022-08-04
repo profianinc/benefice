@@ -309,8 +309,12 @@
             try {
                 httpGetAsync(slugToEnarxTomlUrl(repoAndTag), callback);
             } catch (_error) {
-                // Fallback to asking the server to get it.
-                httpGetAsync('/enarx_toml_fallback?repo=' + repoAndTag[0] + '&tag=' + repoAndTag[1], callback);
+                try {
+                    // Fallback to asking the server to get it.
+                    httpGetAsync('/enarx_toml_fallback?repo=' + repoAndTag[0] + '&tag=' + repoAndTag[1], callback);
+                } catch (error) {
+                    callback(null, 'Failed to make request to server: ' + error)
+                }
             }
         }
 

@@ -116,6 +116,11 @@
                         </div>
                         <input id="submitSlug" type="hidden" name="slug" />
                     </div>
+                    <br />
+                    <span class="is-pulled-right p-2">
+                        <span class="has-text-weight-bold">Workload Limits:</span>
+                        <span>{{ ttl }} seconds</span>
+                    </span>
                 </div>
                 <div id="browser-form" class="is-hidden">
                     <div id="upload_file" class="file has-name" style="display: inline-block">
@@ -135,12 +140,12 @@
                             </span>
                         </label>
                     </div>
+                    <br />
+                    <span class="is-pulled-right p-2">
+                        <span class="has-text-weight-bold">Workload Limits:</span>
+                        <span>{{ ttl }} seconds / {{ size_human }}</span>
+                    </span>
                 </div>
-                <span class="is-pulled-right p-2">
-                    <span class="has-text-weight-bold">Workload Limits:</span>
-                    <span>{{ ttl }} seconds / {{ size_human }}</span>
-                </span>
-                <br />
                 <input id="upload_toml" type="hidden" name="toml" />
                 <br />
                 <div id="editorDiv" class="is-hidden">

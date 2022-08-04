@@ -241,7 +241,19 @@
                     if (xmlHttp.status == 200) {
                         callback(xmlHttp.responseText);
                     } else {
-                        callback(null, xmlHttp.responseText);
+                        var error;
+
+                        if (xmlHttp.responseText === '') {
+                            if (xmlHttp.status !== 0) {
+                                error = 'Request failed with status code: ' + xmlHttp.status
+                            } else {
+                                error = 'Request failed'
+                            }
+                        } else {
+                            error = xmlHttp.responseText;
+                        }
+
+                        callback(null, error);
                     }
                 }
             }

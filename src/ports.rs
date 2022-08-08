@@ -12,7 +12,7 @@ lazy_static! {
     static ref PORTS_IN_USE: Arc<RwLock<HashSet<u16>>> = Arc::new(RwLock::new(HashSet::new()));
 }
 
-pub fn get_listen_ports(toml: &str) -> anyhow::Result<Vec<u16>> {
+pub(crate) fn get_listen_ports(toml: &str) -> anyhow::Result<Vec<u16>> {
     let config = toml::from_str::<Config>(toml).with_context(|| "failed to parse enarx config")?;
 
     let ports = config
@@ -33,7 +33,7 @@ pub fn get_listen_ports(toml: &str) -> anyhow::Result<Vec<u16>> {
     Ok(ports)
 }
 
-pub async fn try_reserve(ports: &[u16]) -> Result<(), Vec<u16>> {
+pub(crate) async fn try_reserve(ports: &[u16]) -> Result<(), Vec<u16>> {
     let mut ports_in_use = PORTS_IN_USE.write().await;
     let conflicting = conflicting(ports, Some(&ports_in_use)).await;
 
@@ -45,15 +45,15 @@ pub async fn try_reserve(ports: &[u16]) -> Result<(), Vec<u16>> {
     Ok(())
 }
 
-pub async fn free(ports: &[u16]) {
+pub(crate) async fn free(ports: &[u16]) {
     let mut ports_in_use = PORTS_IN_USE.write().await;
 
     for port in ports {
-        ports_in_use.remove(port);
+        _ = ports_in_use.remove(port);
     }
 }
 
-pub async fn conflicting<'a>(
+pub(crate) async fn conflicting<'a>(
     candidate_ports: &[u16],
     ports_in_use: Option<&RwLockWriteGuard<'a, HashSet<u16>>>,
 ) -> Vec<u16> {

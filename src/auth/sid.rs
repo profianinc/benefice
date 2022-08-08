@@ -15,14 +15,14 @@ use uuid::Uuid;
 const COOKIE_NAME: &str = "SESSION";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SessionId(Uuid);
+pub(crate) struct SessionId(Uuid);
 
 impl SessionId {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(Uuid::new_v4())
     }
 
-    pub fn until(&self, duration: Duration) -> (HeaderName, HeaderValue) {
+    pub(crate) fn until(&self, duration: Duration) -> (HeaderName, HeaderValue) {
         let s = format!(
             "{}={}; SameSite=Lax; Path=/; Max-Age={}",
             COOKIE_NAME,
@@ -33,7 +33,7 @@ impl SessionId {
         (SET_COOKIE, s.parse().unwrap())
     }
 
-    pub fn clear(&self) -> (HeaderName, HeaderValue) {
+    pub(crate) fn clear(&self) -> (HeaderName, HeaderValue) {
         let s = format!("{}=; SameSite=Lax; Path=/; Max-Age=0", COOKIE_NAME);
 
         (SET_COOKIE, s.parse().unwrap())

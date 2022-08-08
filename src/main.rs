@@ -2,7 +2,31 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 #![forbid(unsafe_code)]
-#![warn(clippy::all, rust_2018_idioms, unused_lifetimes)]
+#![deny(
+    clippy::all,
+    absolute_paths_not_starting_with_crate,
+    deprecated_in_future,
+    missing_copy_implementations,
+    missing_debug_implementations,
+    noop_method_call,
+    rust_2018_compatibility,
+    rust_2018_idioms,
+    rust_2021_compatibility,
+    single_use_lifetimes,
+    trivial_bounds,
+    trivial_casts,
+    trivial_numeric_casts,
+    unreachable_code,
+    unreachable_patterns,
+    unreachable_pub,
+    unstable_features,
+    unused,
+    unused_crate_dependencies,
+    unused_import_braces,
+    unused_lifetimes,
+    unused_results,
+    variant_size_differences
+)]
 
 mod auth;
 mod data;
@@ -39,7 +63,7 @@ use serde::Deserialize;
 use tokio::fs::read_to_string;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 static HTTP: Lazy<Client> = Lazy::new(|| {
@@ -175,7 +199,7 @@ struct Limits {
 }
 
 impl Limits {
-    pub fn time_to_live(&self, star: bool) -> Duration {
+    fn time_to_live(&self, star: bool) -> Duration {
         if star {
             self.timeout_default
         } else {
@@ -184,7 +208,7 @@ impl Limits {
     }
 
     /// Get the maximum allowed wasm size in bytes.
-    pub fn size(&self, star: bool) -> usize {
+    fn size(&self, star: bool) -> usize {
         let size_megabytes = if star {
             self.size_limit_default
         } else {
@@ -193,7 +217,7 @@ impl Limits {
         size_megabytes * 1024 * 1024
     }
 
-    pub fn size_human(&self, star: bool) -> String {
+    fn size_human(&self, star: bool) -> String {
         self.size(star)
             .file_size(options::CONVENTIONAL)
             .unwrap_or_else(|e| {
@@ -308,7 +332,6 @@ async fn root_get(user: Option<Ref<auth::User<Data>>>, limits: Limits) -> impl I
         examples: EXAMPLES.as_slice(),
         user,
         star,
-        size: limits.size(star),
         size_human: limits.size_human(star),
         ttl: limits.time_to_live(star).as_secs(),
     };
@@ -529,7 +552,7 @@ async fn root_post(
 
     // Set the job timeout.
     let weak = Ref::downgrade(&user);
-    tokio::spawn(async move {
+    _ = tokio::spawn(async move {
         sleep(ttl).await;
 
         if let Some(user) = weak.upgrade() {

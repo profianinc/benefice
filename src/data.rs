@@ -4,24 +4,24 @@
 use crate::jobs::Job;
 
 #[derive(Debug, Default)]
-pub struct Data {
+pub(crate) struct Data {
     job: Option<Job>,
 }
 
 impl Data {
-    pub fn new(job: Option<Job>) -> Self {
+    pub(crate) fn new(job: Option<Job>) -> Self {
         Self { job }
     }
 
-    pub fn job(&self) -> &Option<Job> {
+    pub(crate) fn job(&self) -> &Option<Job> {
         &self.job
     }
 
-    pub fn job_mut(&mut self) -> Option<&mut Job> {
+    pub(crate) fn job_mut(&mut self) -> Option<&mut Job> {
         self.job.as_mut()
     }
 
-    pub async fn kill_job(&mut self) {
+    pub(crate) async fn kill_job(&mut self) {
         if let Some(job) = &mut self.job {
             job.kill().await;
         }

@@ -19,20 +19,20 @@ use tracing::error;
 use super::{Ref, Sessions};
 
 #[derive(Debug)]
-pub struct Context<T> {
+pub(crate) struct Context<T> {
     sessions: Ref<Sessions<T>>,
     oidc: CoreClient,
 }
 
 impl<T> Context<T> {
-    pub fn new(ttl: Duration, oidc: CoreClient) -> Self {
+    pub(crate) fn new(ttl: Duration, oidc: CoreClient) -> Self {
         Self {
             sessions: Ref::from(Sessions::from(ttl)),
             oidc,
         }
     }
 
-    pub fn start_auth(&self) -> Url {
+    pub(crate) fn start_auth(&self) -> Url {
         self.oidc
             .authorize_url(
                 AuthenticationFlow::<CoreResponseType>::AuthorizationCode,
@@ -43,13 +43,13 @@ impl<T> Context<T> {
             .0
     }
 
-    pub fn sessions(&self) -> Ref<Sessions<T>> {
+    pub(crate) fn sessions(&self) -> Ref<Sessions<T>> {
         self.sessions.clone()
     }
 }
 
 impl<T: 'static + Send + Sync + Default> Ref<Context<T>> {
-    pub async fn fetch_claims(self, code: String) -> Result<CoreUserInfoClaims> {
+    pub(crate) async fn fetch_claims(self, code: String) -> Result<CoreUserInfoClaims> {
         // Get the OIDC token.
         let token = self
             .read()

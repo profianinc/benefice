@@ -24,13 +24,13 @@ static STAR: Lazy<RwLock<HashMap<(usize, &'static str), bool>>> =
 
 #[derive(Debug, Deserialize)]
 struct Repo {
-    pub full_name: String,
+    full_name: String,
 }
 
 #[derive(Debug)]
-pub struct User<T> {
-    pub uid: usize,
-    pub data: T,
+pub(crate) struct User<T> {
+    pub(crate) uid: usize,
+    pub(crate) data: T,
 }
 
 #[async_trait]
@@ -45,7 +45,7 @@ impl<T: 'static + Send + Sync, B: Send> FromRequest<B> for Ref<User<T>> {
 }
 
 impl<T> User<T> {
-    pub async fn is_starred(&self, repo: &'static str) -> bool {
+    pub(crate) async fn is_starred(&self, repo: &'static str) -> bool {
         if let Some(star) = STAR.read().await.get(&(self.uid, repo)) {
             return *star;
         }
@@ -65,10 +65,10 @@ impl<T> User<T> {
                     let star = repos.iter().any(|r| r.full_name == repo);
 
                     let uid = self.uid;
-                    STAR.write().await.insert((uid, repo), star);
-                    tokio::spawn(async move {
+                    _ = STAR.write().await.insert((uid, repo), star);
+                    _ = tokio::spawn(async move {
                         sleep(STAR_TIMEOUT).await;
-                        STAR.write().await.remove(&(uid, repo));
+                        _ = STAR.write().await.remove(&(uid, repo));
                     });
 
                     star

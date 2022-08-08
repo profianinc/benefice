@@ -7,8 +7,15 @@ mod sessions;
 mod sid;
 mod user;
 
-pub use self::user::User;
-pub use openidconnect::url::Url;
+pub(crate) use self::context::Context;
+pub(crate) use self::session::Session;
+pub(crate) use self::sessions::Sessions;
+pub(crate) use self::sid::SessionId;
+pub(crate) use self::user::User;
+
+pub(crate) use crate::reference::Ref;
+
+pub(crate) use openidconnect::url::Url;
 
 use std::fmt::Display;
 use std::time::Duration;
@@ -27,12 +34,6 @@ use openidconnect::{AuthType, ClientId, ClientSecret, IssuerUrl, RedirectUrl};
 use anyhow::{Context as _, Error};
 use serde::Deserialize;
 use tracing::error;
-
-use self::context::Context;
-use self::session::Session;
-use self::sessions::Sessions;
-use self::sid::SessionId;
-use crate::reference::Ref;
 
 #[derive(Debug, Deserialize)]
 struct AuthRequest {
@@ -79,16 +80,16 @@ async fn login<T: 'static + Send + Sync>(
     Redirect::temporary(ctx.read().await.start_auth().as_str())
 }
 
-pub struct Oidc {
-    pub server: Url,
-    pub issuer: Url,
-    pub client: String,
-    pub secret: Option<String>,
-    pub ttl: Duration,
+pub(crate) struct Oidc {
+    pub(crate) server: Url,
+    pub(crate) issuer: Url,
+    pub(crate) client: String,
+    pub(crate) secret: Option<String>,
+    pub(crate) ttl: Duration,
 }
 
 impl Oidc {
-    pub async fn routes<T: 'static + Send + Sync + Default>(
+    pub(crate) async fn routes<T: 'static + Send + Sync + Default>(
         self,
         router: Router,
     ) -> Result<Router, Error> {

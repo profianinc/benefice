@@ -8,10 +8,10 @@ use std::sync::{Arc, Weak};
 use tokio::sync::RwLock;
 
 #[derive(Debug)]
-pub struct Ref<T>(Arc<RwLock<T>>);
+pub(crate) struct Ref<T>(Arc<RwLock<T>>);
 
 impl<T> Ref<T> {
-    pub fn downgrade(this: &Ref<T>) -> Weak<RwLock<T>> {
+    pub(crate) fn downgrade(this: &Ref<T>) -> Weak<RwLock<T>> {
         Arc::downgrade(&this.0)
     }
 }

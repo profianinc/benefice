@@ -9,19 +9,18 @@ use axum::response::{Html, IntoResponse, Response};
 
 #[derive(Template)]
 #[template(path = "idx.html")]
-pub struct IdxTemplate<'a> {
-    pub toml: &'static str,
-    pub examples: &'a [&'static str],
-    pub user: bool,
-    pub star: bool,
-    pub size: usize,
-    pub size_human: String,
-    pub ttl: u64,
+pub(crate) struct IdxTemplate<'a> {
+    pub(crate) toml: &'static str,
+    pub(crate) examples: &'a [&'static str],
+    pub(crate) user: bool,
+    pub(crate) star: bool,
+    pub(crate) size_human: String,
+    pub(crate) ttl: u64,
 }
 
 #[derive(Template)]
 #[template(path = "job.html")]
-pub struct JobTemplate;
+pub(crate) struct JobTemplate;
 
 impl JobTemplate {
     fn get_slug_url(&self, slug: &str) -> String {
@@ -35,7 +34,7 @@ impl JobTemplate {
     }
 }
 
-pub struct HtmlTemplate<T>(pub T);
+pub(crate) struct HtmlTemplate<T>(pub(crate) T);
 
 impl<T> IntoResponse for HtmlTemplate<T>
 where

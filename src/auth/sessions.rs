@@ -16,7 +16,7 @@ use super::{Context, Session, SessionId, User};
 use crate::reference::Ref;
 
 #[derive(Debug)]
-pub struct Sessions<T> {
+pub(crate) struct Sessions<T> {
     map: HashMap<SessionId, Ref<Session<T>>>,
     ttl: Duration,
 }
@@ -36,7 +36,7 @@ impl<T: Default> Sessions<T> {
         for (.., v) in self.map.iter() {
             let user = v.read().await.user.clone();
             if user.read().await.uid == uid {
-                self.map.insert(sid, Session { sid, user }.into());
+                _ = self.map.insert(sid, Session { sid, user }.into());
                 return sid;
             }
         }
@@ -54,23 +54,23 @@ impl<T: Default> Sessions<T> {
         };
 
         // Insert the session.
-        self.map.insert(sid, session.into());
+        _ = self.map.insert(sid, session.into());
         sid
     }
 }
 
 impl<T: 'static + Send + Sync + Default> Ref<Sessions<T>> {
-    pub async fn create_session(self, uid: usize) -> (HeaderName, HeaderValue) {
+    pub(crate) async fn create_session(self, uid: usize) -> (HeaderName, HeaderValue) {
         // Create the session.
         let sid = self.write().await.make_session(uid).await;
         let ttl = self.read().await.ttl;
 
         // Destroy the session after the timeout.
         let weak = Ref::downgrade(&self);
-        tokio::spawn(async move {
+        _ = tokio::spawn(async move {
             sleep(ttl).await;
             if let Some(arc) = weak.upgrade() {
-                arc.write().await.map.remove(&sid);
+                _ = arc.write().await.map.remove(&sid);
             }
         });
 

@@ -21,7 +21,7 @@ use uuid::Uuid;
 static COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug)]
-pub enum WorkloadType {
+pub(crate) enum WorkloadType {
     Drawbridge,
     Browser,
 }
@@ -38,15 +38,15 @@ impl FromStr for WorkloadType {
     }
 }
 
-pub enum Standard {
+pub(crate) enum Standard {
     Output,
     Error,
 }
 
 #[derive(Debug)]
 #[allow(dead_code)]
-pub struct Job {
-    pub uuid: Uuid,
+pub(crate) struct Job {
+    pub(crate) uuid: Uuid,
     exec: Child,
     workload_type: WorkloadType,
     slug: Option<String>,
@@ -57,7 +57,7 @@ pub struct Job {
 
 impl Drop for Job {
     fn drop(&mut self) {
-        COUNT.fetch_sub(1, Ordering::SeqCst);
+        _ = COUNT.fetch_sub(1, Ordering::SeqCst);
 
         if !self.reserved_ports.is_empty() {
             error!("a job was not cleaned up correctly");
@@ -66,11 +66,11 @@ impl Drop for Job {
 }
 
 impl Job {
-    pub fn count() -> usize {
+    pub(crate) fn count() -> usize {
         COUNT.load(Ordering::SeqCst)
     }
 
-    pub fn new(
+    pub(crate) fn new(
         cmd: String,
         workload_type: String,
         slug: Option<String>,
@@ -124,7 +124,7 @@ impl Job {
             }
         };
 
-        COUNT.fetch_add(1, Ordering::SeqCst);
+        _ = COUNT.fetch_add(1, Ordering::SeqCst);
 
         Ok(Self {
             uuid: Uuid::new_v4(),
@@ -137,15 +137,19 @@ impl Job {
         })
     }
 
-    pub async fn read(&mut self, kind: Standard, buffer: &mut [u8]) -> std::io::Result<usize> {
+    pub(crate) async fn read(
+        &mut self,
+        kind: Standard,
+        buffer: &mut [u8],
+    ) -> std::io::Result<usize> {
         match kind {
             Standard::Output => self.exec.stdout.as_mut().unwrap().read(buffer).await,
             Standard::Error => self.exec.stderr.as_mut().unwrap().read(buffer).await,
         }
     }
 
-    pub async fn kill(&mut self) {
-        let _ = self.exec.kill().await;
+    pub(crate) async fn kill(&mut self) {
+        _ = self.exec.kill().await;
         ports::free(&self.reserved_ports).await;
         self.reserved_ports.clear();
     }

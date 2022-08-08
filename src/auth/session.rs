@@ -8,9 +8,9 @@ use crate::reference::Ref;
 use super::{SessionId, User};
 
 #[derive(Debug)]
-pub struct Session<T> {
-    pub sid: SessionId,
-    pub user: Ref<User<T>>,
+pub(crate) struct Session<T> {
+    pub(crate) sid: SessionId,
+    pub(crate) user: Ref<User<T>>,
 }
 
 impl<T> PartialEq for Session<T>

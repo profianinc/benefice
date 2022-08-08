@@ -6,17 +6,17 @@ use std::ops::Range;
 use axum::response::Redirect;
 
 /// The server is already running too many jobs.
-pub fn too_many_workloads() -> Redirect {
+pub(crate) fn too_many_workloads() -> Redirect {
     Redirect::to("/?message=too_many_workloads")
 }
 
 /// A workload is trying to listen to too many ports at once.
-pub fn too_many_listeners(listen_max: u16) -> Redirect {
+pub(crate) fn too_many_listeners(listen_max: u16) -> Redirect {
     Redirect::to(&format!("/?message=too_many_listeners&max={listen_max}",))
 }
 
 /// Some listen ports are outside of the allowed range.
-pub fn illegal_ports(illegal_ports: &[u16], port_range: Range<u16>) -> Redirect {
+pub(crate) fn illegal_ports(illegal_ports: &[u16], port_range: Range<u16>) -> Redirect {
     Redirect::to(&format!(
         "/?message=illegal_ports&ports={}&range={}-{}",
         illegal_ports
@@ -30,7 +30,7 @@ pub fn illegal_ports(illegal_ports: &[u16], port_range: Range<u16>) -> Redirect 
 }
 
 /// Another workload already has some ports in use.
-pub fn port_conflicts(port_conflicts: &[u16]) -> Redirect {
+pub(crate) fn port_conflicts(port_conflicts: &[u16]) -> Redirect {
     Redirect::to(&format!(
         "/?message=port_conflicts&ports={}",
         port_conflicts

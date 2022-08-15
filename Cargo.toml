@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+aes-gcm = { version = "0.9.4", features = ["std"] }
 axum = { version = "0.5.5", features = ["multipart", "headers"] }
 askama = { version = "0.11.1", default-features = false }
+base64 = "0.13.0"
 tokio = { version = "1.19.2", features = ["macros", "process", "rt-multi-thread", "io-util", "fs", "sync"] }
 tracing = { version = "0.1.35", default-features = false, features = ["std", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3.11", features = ["env-filter"] }
@@ -19,9 +21,10 @@ clap = { version = "3.2.3", default-features = false, features = ["derive", "std
 openidconnect = { version = "2.3.1", default-features = false, features = ["rustls-tls", "reqwest"] }
 toml = { version = "0.5.9", default-features = false }
 num_cpus = "1.13.1"
+rand = { version = "0.8.4", default-features = false }
 serde = { version = "1.0.136", default-features = false }
-serde_json = { version = "1.0.83", default-features = false }
+serde_json = { version = "1.0.83", default-features = false, features = ["std"] }
 enarx-config = { version = "0.6.1", default-features = false }
 humansize = { version = "1.1.1", default-features = false }
 lazy_static = { version = "1.4.0", default-features = false }
-rand = { version = "0.8.4", default-features = false }
+zeroize = "1.5.7"

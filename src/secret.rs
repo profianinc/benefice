@@ -3,18 +3,50 @@
 
 use std::str::FromStr;
 
-use anyhow::{Context, Error};
+use anyhow::{anyhow, Context, Error};
+use zeroize::Zeroizing;
+
+use crate::auth::Key;
 
 #[derive(Debug)]
-pub struct SecretFile(String);
+pub struct SecretFile<T>(T);
 
-impl From<SecretFile> for String {
-    fn from(sf: SecretFile) -> Self {
+impl From<SecretFile<Key>> for Key {
+    fn from(sf: SecretFile<Key>) -> Self {
         sf.0
     }
 }
 
-impl FromStr for SecretFile {
+impl From<SecretFile<String>> for String {
+    fn from(sf: SecretFile<String>) -> Self {
+        sf.0
+    }
+}
+
+impl FromStr for SecretFile<Key> {
+    type Err = Error;
+
+    fn from_str(path: &str) -> Result<Self, Self::Err> {
+        let data = Zeroizing::new(
+            std::fs::read(path)
+                .map_err(anyhow::Error::from)
+                .with_context(|| format!("error reading secret at `{path}`"))?,
+        );
+
+        let mut key = Key::default();
+        if data.len() != key.as_slice().len() {
+            return Err(anyhow!(
+                "secret at `{path}` MUST have size {}",
+                key.as_slice().len()
+            ));
+        }
+
+        key.as_mut_slice().copy_from_slice(&data);
+        Ok(Self(key))
+    }
+}
+
+impl FromStr for SecretFile<String> {
     type Err = Error;
 
     fn from_str(path: &str) -> Result<Self, Self::Err> {

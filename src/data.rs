@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::jobs::Job;
+use crate::job::Job;
 
 #[derive(Debug, Default)]
 pub(crate) struct Data {

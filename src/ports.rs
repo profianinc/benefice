@@ -45,14 +45,6 @@ pub(crate) async fn try_reserve(ports: &[u16]) -> Result<(), Vec<u16>> {
     Ok(())
 }
 
-pub(crate) async fn free(ports: &[u16]) {
-    let mut ports_in_use = PORTS_IN_USE.write().await;
-
-    for port in ports {
-        _ = ports_in_use.remove(port);
-    }
-}
-
 pub(crate) async fn conflicting<'a>(
     candidate_ports: &[u16],
     ports_in_use: Option<&RwLockWriteGuard<'a, HashSet<u16>>>,

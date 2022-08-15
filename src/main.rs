@@ -29,16 +29,17 @@
 )]
 
 mod auth;
-mod data;
+mod job;
 mod jobs;
 mod ports;
-mod reference;
 mod secret;
 mod templates;
 
-use crate::data::Data;
-use crate::reference::Ref;
-use crate::templates::{HtmlTemplate, IdxTemplate};
+use self::auth::{Key, User};
+use self::job::{Job, Standard};
+use self::jobs::Jobs;
+
+use crate::templates::{HtmlTemplate, IdxTemplate, Page};
 
 use std::fs::read;
 use std::io::Write;
@@ -59,17 +60,20 @@ use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use reqwest::{Client, ClientBuilder};
 use serde_json::json;
-use templates::Page;
 use tokio::fs::read_to_string;
+use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use uuid::Uuid;
 
 static HTTP: Lazy<Client> = Lazy::new(|| {
     const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
     ClientBuilder::new().user_agent(USER_AGENT).build().unwrap()
 });
+
+static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
 
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
@@ -144,7 +148,15 @@ struct Args {
 
     /// Path to a file containing OpenID Connect secret.
     #[clap(long)]
-    oidc_secret: Option<secret::SecretFile>,
+    oidc_secret: Option<secret::SecretFile<String>>,
+
+    /// Key used to encrypt the session cookie.
+    #[clap(long)]
+    session_key: Option<secret::SecretFile<Key>>,
+
+    /// Session cookie time to live (in minutes).
+    #[clap(long, default_value_t = 24 * 60)]
+    session_ttl: u64,
 }
 
 impl Args {
@@ -161,7 +173,8 @@ impl Args {
             issuer: self.oidc_issuer,
             client: self.oidc_client,
             secret: self.oidc_secret.map(|sf| sf.into()),
-            ttl: Duration::from_secs(24 * 60 * 60),
+            session_ttl: Duration::from_secs(self.session_ttl * 60),
+            session_key: self.session_key.map(|k| k.into()).unwrap_or_default(),
         };
 
         let other = Other {
@@ -275,14 +288,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let app = Router::new()
-        .route(
-            "/out",
-            post(move |user| reader(user, jobs::Standard::Output)),
-        )
-        .route(
-            "/err",
-            post(move |user| reader(user, jobs::Standard::Error)),
-        )
+        .route("/out", post(move |user| reader(user, Standard::Output)))
+        .route("/err", post(move |user| reader(user, Standard::Error)))
         .route(
             "/drawbridge",
             get(move |user| root_get(user, limits, Page::Drawbridge)),
@@ -307,7 +314,7 @@ async fn main() -> anyhow::Result<()> {
                 .delete(root_delete),
         );
 
-    let app = oidc.routes::<Data>(app).await?;
+    let app = oidc.routes(app).await?;
 
     Server::bind(&other.addr)
         .serve(app.layer(TraceLayer::new_for_http()).into_make_service())
@@ -315,14 +322,10 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_get(
-    user: Option<Ref<auth::User<Data>>>,
-    limits: Limits,
-    page: Page,
-) -> impl IntoResponse {
+async fn root_get(user: Option<User>, limits: Limits, page: Page) -> impl IntoResponse {
     let (user, star) = match user {
         None => (false, false),
-        Some(user) => (true, user.read().await.is_starred("enarx/enarx").await),
+        Some(user) => (true, user.is_starred("enarx/enarx").await),
     };
 
     let tmpl = IdxTemplate {
@@ -341,7 +344,7 @@ async fn root_get(
 
 // TODO: create tests for endpoints: #38
 async fn root_post(
-    user: Option<Ref<auth::User<Data>>>,
+    user: Option<User>,
     mut multipart: Multipart,
     limits: Limits,
     port_range: Option<Range<u16>>,
@@ -359,17 +362,12 @@ async fn root_post(
         Some(user) => user,
     };
 
-    let star = user.read().await.is_starred("enarx/enarx").await;
+    let star = user.is_starred("enarx/enarx").await;
     let ttl = limits.time_to_live(star);
     let size = limits.size(star);
 
-    {
-        let mut lock = user.write().await;
-
-        if let Some(uuid) = lock.data.job().as_ref().map(|j| j.uuid) {
-            debug!("killing: {}", uuid);
-            lock.data.kill_job().await;
-        }
+    if let Some(uuid) = JOBS.write().await.remove(&user).await {
+        debug!("replacing an old job with a new one: {}", uuid);
     }
 
     let mut workload_type = None;
@@ -583,15 +581,14 @@ async fn root_post(
             .into_response()
     })?;
 
-    // Create the new job and get an identifier.
-    let uuid = {
-        let mut lock = user.write().await;
-
-        if lock.data.job().is_some() {
+    // Create the new job.
+    let uuid = Uuid::new_v4();
+    {
+        if JOBS.read().await.by_user(&user).is_some() {
             return Err(Redirect::to("/").into_response());
         }
 
-        if jobs::Job::count() >= jobs {
+        if JOBS.read().await.count() >= jobs {
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Too many workloads are running right now, try again later",
@@ -599,30 +596,21 @@ async fn root_post(
                 .into_response());
         }
 
-        let job = jobs::Job::new(workload_type, slug, wasm, toml, mapped_ports.clone())?;
-        let uuid = job.uuid;
-        lock.data = Data::new(Some(job));
-        uuid
-    };
+        let job = Job::new(workload_type, slug, wasm, toml, mapped_ports.clone())?;
+        JOBS.write().await.insert(user, job);
+    }
 
     // Set the job timeout.
-    let weak = Ref::downgrade(&user);
     _ = tokio::spawn(async move {
         sleep(ttl).await;
 
-        if let Some(user) = weak.upgrade() {
+        if let Some(uuid) = JOBS.write().await.remove(&user).await {
             debug!("timeout for: {}", uuid);
-            let mut lock = user.write().await;
-            if lock.data.job().as_ref().map(|j| j.uuid) == Some(uuid) {
-                lock.data.kill_job().await;
-            }
         }
     });
 
-    info!(
-        "job started. job_id={uuid}, user_id={}",
-        user.read().await.uid
-    );
+    info!("job started. job_id={uuid}, user_id={user}");
+
     let json = json!({ "ports": mapped_ports });
     Ok(Json(json))
 }
@@ -638,29 +626,26 @@ async fn get_enarx_config_from_drawbridge(
     .await
 }
 
-async fn root_delete(user: Ref<auth::User<Data>>) -> StatusCode {
-    let mut lock = user.write().await;
-
-    if let Some(uuid) = lock.data.job().as_ref().map(|j| j.uuid) {
+async fn root_delete(user: User) -> StatusCode {
+    if let Some(uuid) = JOBS.write().await.remove(&user).await {
         debug!("killing: {}", uuid);
-        lock.data.kill_job().await;
     }
 
     StatusCode::OK
 }
 
-async fn reader(user: Ref<auth::User<Data>>, kind: jobs::Standard) -> Result<Vec<u8>, StatusCode> {
-    let mut buf = [0; 4096];
+async fn reader(user: User, kind: Standard) -> Result<Vec<u8>, StatusCode> {
+    if let Some(job) = JOBS.read().await.by_user(&user).cloned() {
+        let mut buf = [0; 4096];
+        let mut lock = job.write().await;
+        let future = lock.read(kind, &mut buf);
 
-    match user.write().await.data.job_mut() {
-        None => Err(StatusCode::NOT_FOUND),
-        Some(job) => {
-            let future = job.read(kind, &mut buf);
-            match timeout(READ_TIMEOUT, future).await {
-                Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-                Ok(Ok(size)) => Ok(buf[..size].to_vec()),
-                Err(..) => Ok(Vec::new()),
-            }
-        }
+        return match timeout(READ_TIMEOUT, future).await {
+            Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+            Ok(Ok(size)) => Ok(buf[..size].to_vec()),
+            Err(..) => Ok(Vec::new()),
+        };
     }
+
+    Err(StatusCode::NOT_FOUND)
 }

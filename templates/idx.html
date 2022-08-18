@@ -66,13 +66,13 @@
 <body>
     <nav class="navbar is-light" role="navigation" aria-label="main navigation">
         <div class="navbar-brand" style="width: 100%">
-            <a class="navbar-item" href="https://enarx.dev">
+            <a class="navbar-item" href="https://enarx.dev" target="_blank">
                 <img src="https://try.enarx.dev/img/enarx.png" alt="Enarx">
             </a>
 
             <div class="navbar-item p-0 unselectable" style="font-size:0.7rem;">secured by</div>
 
-            <a class="navbar-item" href="https://profian.com">
+            <a class="navbar-item" href="https://profian.com" target="_blank">
                 <img src="https://try.enarx.dev/img/profian.svg" alt="Profian" style="width: 100px">
             </a>
             <div class="navbar-end">
@@ -115,9 +115,10 @@
             </article>
             <div class="content">
                 <div class="has-text-centered is-size-3">
-                    <strong>Try Enarx</strong> allows you to run a <a href="https://webassembly.org">WebAssembly</a>
+                    <strong>Try Enarx</strong> allows you to run a <a href="https://webassembly.org"
+                        target="_blank">WebAssembly</a>
                     workload in an encrypted
-                    <a href="https://enarx.dev">Enarx Keep</a>
+                    <a href="https://enarx.dev" target="_blank">Enarx Keep</a>
                 </div>
             </div>
             <br />
@@ -130,16 +131,20 @@
                                 <p class="has-text-centered">
                                     {% match page %}
                                     {% when Page::Examples %}
-                                    <a href="https://enarx.dev/docs/Running/Publish">Deploy</a> an example from
+                                    <a href="https://enarx.dev/docs/Running/Publish" target="_blank">Deploy</a> an
+                                    example from
                                     <strong>Drawbridge</strong>, an Enarx package registry.
-                                    Example sources are from the <a href="https://github.com/enarx/codex">Codex</a>
+                                    Example sources are from the <a href="https://github.com/enarx/codex"
+                                        target="_blank">Codex</a>
                                     repository.
                                     {% when Page::Drawbridge %}
-                                    <a href="https://enarx.dev/docs/Running/Publish">Deploy</a> any slug from
+                                    <a href="https://enarx.dev/docs/Running/Publish" target="_blank">Deploy</a> any slug
+                                    from
                                     <strong>Drawbridge</strong>, an Enarx package repository.
                                     {% when Page::Upload %}
-                                    Upload a <a href="https://enarx.dev/docs/WebAssembly/Introduction">WebAssembly</a>
-                                    file and <a href="https://enarx.dev/docs/running/enarx_toml">Enarx
+                                    Upload a <a href="https://enarx.dev/docs/WebAssembly/Introduction"
+                                        target="_blank">WebAssembly</a>
+                                    file and <a href="https://enarx.dev/docs/running/enarx_toml" target="_blank">Enarx
                                         Configuration</a>.
                                     {% endmatch %}
                                 </p>
@@ -150,7 +155,8 @@
                                     <input class="input" type="hidden" name="workloadType" value="drawbridge">
                                     <div class="field">
                                         <label class="label">
-                                            Select an example (<a href="https://github.com/enarx/codex">source</a>)
+                                            Select an example (<a href="https://github.com/enarx/codex"
+                                                target="_blank">source</a>)
                                         </label>
                                         <div class="select">
                                             <select name="slug">
@@ -205,7 +211,8 @@
                                         {% if star %}
                                         Thanks for starring the Enarx project!
                                         {% else %}
-                                        To raise the workload limits, star <a href="https://github.com/enarx/enarx">the
+                                        To raise the workload limits, star <a href="https://github.com/enarx/enarx"
+                                            target="_blank">the
                                             Enarx
                                             project</a>.
                                         {% endif %}
@@ -472,7 +479,7 @@
         <div class="container">
             <header class="has-text-centered">
                 <h3 class="title is-3">
-                    <a class="has-text-info" href="https://chat.enarx.dev">
+                    <a class="has-text-info" href="https://chat.enarx.dev" target="_blank">
                         Join our <strong>community</strong>
                     </a>
                 </h3>
@@ -499,150 +506,150 @@
                 <div class="columns">
                     <div class="column">
                         <p class="bd-footer-link-title">
-                            <a href="https://enarx.dev">Documentation</a>
+                            <a href="https://enarx.dev" target="_blank">Documentation</a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/Start/Introduction">
+                            <a href="https://enarx.dev/docs/Start/Introduction" target="_blank">
                                 Getting Started
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/QuickStart">
+                            <a href="https://enarx.dev/docs/QuickStart" target="_blank">
                                 Installation Guide
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/Running/Publish">
+                            <a href="https://enarx.dev/docs/Running/Publish" target="_blank">
                                 Running Enarx Guide
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/WebAssembly/Introduction">
+                            <a href="https://enarx.dev/docs/WebAssembly/Introduction" target="_blank">
                                 WebAssembly Guide
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/Contributing/Introduction">
+                            <a href="https://enarx.dev/docs/Contributing/Introduction" target="_blank">
                                 Contributing Guide
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/Repo/Introduction/">
+                            <a href="https://enarx.dev/docs/Repo/Introduction/" target="_blank">
                                 Enarx Repo Guide
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/Technical/Introduction">
+                            <a href="https://enarx.dev/docs/Technical/Introduction" target="_blank">
                                 Technical Overview
                             </a>
                         </p>
                     </div>
                     <div class="column">
                         <p class="bd-footer-link-title">
-                            <a href="https://enarx.dev/resources">Resources</a>
+                            <a href="https://enarx.dev/resources" target="_blank">Resources</a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/resources">
+                            <a href="https://enarx.dev/resources" target="_blank">
                                 All Resources
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/resources/tags">
+                            <a href="https://enarx.dev/resources/tags" target="_blank">
                                 All Tags
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/resources/tags/release">
+                            <a href="https://enarx.dev/resources/tags/release" target="_blank">
                                 Releases
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/resources/tags/white-paper">
+                            <a href="https://enarx.dev/resources/tags/white-paper" target="_blank">
                                 White Papers
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/resources/tags/enarxs-blog">
+                            <a href="https://enarx.dev/resources/tags/enarxs-blog" target="_blank">
                                 Blog Posts
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/resources/tags/article">
+                            <a href="https://enarx.dev/resources/tags/article" target="_blank">
                                 Articles
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/resources/tags/event">
+                            <a href="https://enarx.dev/resources/tags/event" target="_blank">
                                 Events
                             </a>
                         </p>
                     </div>
                     <div class="column">
                         <p class="bd-footer-link-title">
-                            <a href="https://enarx.dev">Community</a>
+                            <a href="https://enarx.dev" target="_blank">Community</a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://github.com/enarx/enarx">
+                            <a href="https://github.com/enarx/enarx" target="_blank">
                                 GitHub
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://chat.enarx.dev/">
+                            <a href="https://chat.enarx.dev/" target="_blank">
                                 Chat
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://blog.enarx.dev/">
+                            <a href="https://blog.enarx.dev/" target="_blank">
                                 Blog
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://twitter.com/enarxproject">
+                            <a href="https://twitter.com/enarxproject" target="_blank">
                                 Twitter
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/events">
+                            <a href="https://enarx.dev/events" target="_blank">
                                 Events
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/webinars">
+                            <a href="https://enarx.dev/webinars" target="_blank">
                                 Webinars
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/meetings">
+                            <a href="https://enarx.dev/meetings" target="_blank">
                                 Meetings
                             </a>
                         </p>
                     </div>
                     <div class="column">
                         <p class="bd-footer-link-title">
-                            <a href="https://enarx.dev">Initiatives</a>
+                            <a href="https://enarx.dev" target="_blank">Initiatives</a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://try.enarx.dev">
+                            <a href="https://try.enarx.dev" target="_blank">
                                 Try Enarx
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/docs/Fellowship/Introduction">
+                            <a href="https://enarx.dev/docs/Fellowship/Introduction" target="_blank">
                                 Fellowship Program
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://enarx.dev/cryptle">
+                            <a href="https://enarx.dev/cryptle" target="_blank">
                                 Cryptle Hack Challenge
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://wasm.builders">
+                            <a href="https://wasm.builders" target="_blank">
                                 Wasm Builders
                             </a>
                         </p>
                         <p class="bd-footer-link">
-                            <a href="https://github.com/enarx/codex/">
+                            <a href="https://github.com/enarx/codex/" target="_blank">
                                 Wasm Codex
                             </a>
                         </p>
@@ -848,7 +855,7 @@
                     var hostPort = map[1];
                     result +=
                         '<li>Port ' + containerPort + ' -> ' + hostPort +
-                        ' (<a href="https://' + window.location.hostname + ':' + hostPort + '/">link</a>)</li>';
+                        ' (<a href="https://' + window.location.hostname + ':' + hostPort + '/" target="_blank">link</a>)</li>';
                 }
 
                 return result;

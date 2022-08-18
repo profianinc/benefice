@@ -1,37 +1,27 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use crate::EXAMPLES;
-
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 
+pub(crate) enum Page {
+    Examples,
+    Drawbridge,
+    Upload,
+}
+
 #[derive(Template)]
 #[template(path = "idx.html")]
 pub(crate) struct IdxTemplate<'a> {
+    pub(crate) page: Page,
     pub(crate) toml: &'static str,
     pub(crate) examples: &'a [&'static str],
     pub(crate) user: bool,
     pub(crate) star: bool,
+    pub(crate) _size: usize,
     pub(crate) size_human: String,
     pub(crate) ttl: u64,
-}
-
-#[derive(Template)]
-#[template(path = "job.html")]
-pub(crate) struct JobTemplate;
-
-impl JobTemplate {
-    fn get_slug_url(&self, slug: &str) -> String {
-        for example_slug in &*EXAMPLES {
-            if example_slug.contains(slug) {
-                return format!("/?slug={}", example_slug);
-            }
-        }
-
-        panic!("Slug {slug} not found in examples");
-    }
 }
 
 pub(crate) struct HtmlTemplate<T>(pub(crate) T);

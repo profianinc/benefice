@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use crate::ports;
+use crate::ENARX_DOCKER_IMAGE_TAG;
 
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
@@ -23,7 +25,7 @@ static COUNT: AtomicUsize = AtomicUsize::new(0);
 #[derive(Debug)]
 pub(crate) enum WorkloadType {
     Drawbridge,
-    Browser,
+    Upload,
 }
 
 impl FromStr for WorkloadType {
@@ -32,7 +34,7 @@ impl FromStr for WorkloadType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "drawbridge" => WorkloadType::Drawbridge,
-            "browser" => WorkloadType::Browser,
+            "upload" => WorkloadType::Upload,
             _ => return Err(anyhow!("Unknown workload type {s}")),
         })
     }
@@ -52,14 +54,14 @@ pub(crate) struct Job {
     slug: Option<String>,
     wasm: Option<NamedTempFile>,
     toml: Option<NamedTempFile>,
-    reserved_ports: Vec<u16>,
+    mapped_ports: HashMap<u16, u16>,
 }
 
 impl Drop for Job {
     fn drop(&mut self) {
-        _ = COUNT.fetch_sub(1, Ordering::SeqCst);
+        let _ = COUNT.fetch_sub(1, Ordering::SeqCst);
 
-        if !self.reserved_ports.is_empty() {
+        if !self.mapped_ports.is_empty() {
             error!("a job was not cleaned up correctly");
         }
     }
@@ -71,23 +73,34 @@ impl Job {
     }
 
     pub(crate) fn new(
-        cmd: String,
         workload_type: String,
         slug: Option<String>,
         wasm: Option<NamedTempFile>,
         toml: Option<NamedTempFile>,
-        reserved_ports: Vec<u16>,
+        mapped_ports: HashMap<u16, u16>,
     ) -> Result<Self, Response> {
+        let uuid = Uuid::new_v4();
         let workload_type = WorkloadType::from_str(&workload_type).map_err(|e| {
             debug!("Failed to parse workload type: {e}");
             StatusCode::BAD_REQUEST.into_response()
         })?;
+        let mapped_ports_args = mapped_ports
+            .iter()
+            .flat_map(|(container_port, host_port)| {
+                ["-p".to_string(), format!("{host_port}:{container_port}")]
+            })
+            .collect::<Vec<_>>();
         let exec = match workload_type {
             WorkloadType::Drawbridge => {
                 let slug = slug
                     .as_ref()
                     .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-                Command::new(cmd)
+                Command::new("docker")
+                    .args(&["run", "--rm", "--name"])
+                    .arg(&uuid.to_string())
+                    .args(mapped_ports_args)
+                    .arg(ENARX_DOCKER_IMAGE_TAG)
+                    .arg("enarx")
                     .arg("deploy")
                     .arg(slug)
                     .stdin(Stdio::null())
@@ -100,18 +113,35 @@ impl Job {
                         StatusCode::INTERNAL_SERVER_ERROR.into_response()
                     })?
             }
-            WorkloadType::Browser => {
+            WorkloadType::Upload => {
                 let wasm = wasm
                     .as_ref()
                     .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+                let wasm_path_str = wasm.path().to_str().ok_or_else(|| {
+                    error!("Failed to get wasm path as str");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                })?;
                 let toml = toml
                     .as_ref()
                     .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-                Command::new(cmd)
+                let toml_path_str = toml.path().to_str().ok_or_else(|| {
+                    error!("Failed to get toml path as str");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                })?;
+                Command::new("docker")
+                    .args(&["run", "--rm", "--name"])
+                    .arg(&uuid.to_string())
+                    .arg("-v")
+                    .arg(format!("{}:/app/Enarx.toml", toml_path_str))
+                    .arg("-v")
+                    .arg(format!("{}:/app/main.wasm", wasm_path_str))
+                    .args(mapped_ports_args)
+                    .arg(ENARX_DOCKER_IMAGE_TAG)
+                    .arg("enarx")
                     .arg("run")
                     .arg("--wasmcfgfile")
-                    .arg(toml.path())
-                    .arg(wasm.path())
+                    .arg("/app/Enarx.toml")
+                    .arg("/app/main.wasm")
                     .stdin(Stdio::null())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
@@ -124,16 +154,16 @@ impl Job {
             }
         };
 
-        _ = COUNT.fetch_add(1, Ordering::SeqCst);
+        let _ = COUNT.fetch_add(1, Ordering::SeqCst);
 
         Ok(Self {
-            uuid: Uuid::new_v4(),
+            uuid,
             exec,
             workload_type,
             slug,
             wasm,
             toml,
-            reserved_ports,
+            mapped_ports,
         })
     }
 
@@ -149,8 +179,22 @@ impl Job {
     }
 
     pub(crate) async fn kill(&mut self) {
-        _ = self.exec.kill().await;
-        ports::free(&self.reserved_ports).await;
-        self.reserved_ports.clear();
+        match Command::new("docker")
+            .arg("kill")
+            .arg(&self.uuid.to_string())
+            .spawn()
+        {
+            Err(e) => {
+                error!("failed to run docker kill {}", e);
+            }
+            Ok(mut child) => {
+                if let Err(e) = child.wait().await {
+                    error!("failed to run docker kill {}", e);
+                }
+            }
+        }
+        let _ = self.exec.kill().await;
+        ports::free(&self.mapped_ports).await;
+        self.mapped_ports.clear();
     }
 }

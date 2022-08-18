@@ -4,8 +4,23 @@
 <html>
 
 <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Try Enarx</title>
+    <meta name="description" content="Try Enarx: Confidential Computing + WebAssembly">
+    {% match page %}
+    {% when Page::Examples %}
+    <title>Try Enarx - Examples</title>
+    {% when Page::Drawbridge %}
+    <title>Try Enarx - Drawbridge</title>
+    {% when Page::Upload %}
+    <title>Try Enarx - Upload</title>
+    {% endmatch %}
+    <link rel="stylesheet" href="https://try.enarx.dev/css/style.css">
+    <link rel="stylesheet" href="https://try.enarx.dev/css/bulma-docs.min.css">
+    <link rel="canonical" href="https://try.enarx.dev/">
+    <script src="https://ajax.googleapis.com/ajax/libs/webfont/1.6.26/webfont.js" async=""></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Nunito:400,700" media="all">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"
         integrity="sha512-894YE6QWD5I59HgZOGReFYm4dnWc1Qt5NtvYSaNcOP+u1T9qYdvdihz0PPSiiqn/+/3e7Jo4EaG7TubfWGUrMQ=="
@@ -16,7 +31,18 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.7.1/mode-toml.min.js"
         integrity="sha512-8QOETbDki7akpeMrYulOWuKx9MRoOYo7VqMuudle9ek/WN/pXcWhV6GL+tSyAoLigUwFuJHiN31Sao+trgPoPQ=="
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Nunito:400,700" media="all">
     <style>
+        #console {
+            font-family: 'Courier New', Courier, monospace;
+            background-color: black;
+            color: white;
+            overflow: scroll;
+            overflow-wrap: normal;
+            display: block;
+            height: 28em;
+        }
+
         .unselectable {
             -webkit-user-select: none;
             -webkit-touch-callout: none;
@@ -24,6 +50,15 @@
             -ms-user-select: none;
             user-select: none;
             color: #cc0000;
+        }
+
+        #editor {
+            min-height: 30vh;
+            resize: none;
+        }
+
+        .tile {
+            max-width: 100%;
         }
     </style>
 </head>
@@ -43,9 +78,25 @@
             <div class="navbar-end">
                 <div class="navbar-item">
                     <div class="buttons">
-                        <a class="button is-primary" id="auth" href="/login">
-                            Log in
+                        <a class="button is-info" href="/">
+                            Examples
                         </a>
+                        <a class="button is-info" href="/drawbridge">
+                            Drawbridge
+                        </a>
+                        <a class="button is-info" href="/upload">
+                            Upload
+                        </a>
+                        <div id="userNav">
+                            <a class="button is-success" id="auth" href="/logout">
+                                Log out
+                            </a>
+                        </div>
+                        <div id="noUserNav" class="is-hidden">
+                            <a class="button is-success" id="auth" href="/login">
+                                Log in
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -63,236 +114,586 @@
                 </div>
             </article>
             <div class="content">
-                <p>
-                    <strong>Try Enarx</strong> allows you to run a <strong>WebAssembly</strong> workload in an encrypted
-                    <strong>Enarx Keep</strong>.
-                    You can either <strong>select a demo</strong> to see it working (from <strong>Drawbridge</strong>,
-                    an Enarx package registry) or <strong>upload a Wasm file</strong> along with <a
-                        href="https://enarx.dev/docs/running/enarx_toml" target="_blank">the Enarx runtime
-                        configuration</a>.
-                </p>
-                <p>
-                    {% if star %}
-                    Thanks for starring the Enarx project!
-                    {% else %}
-                    To raise the workload limits, star <a href="https://github.com/enarx/enarx">the Enarx project</a>.
-                    {% endif %}
-                </p>
+                <div class="has-text-centered is-size-3">
+                    <strong>Try Enarx</strong> allows you to run a <a href="https://webassembly.org">WebAssembly</a>
+                    workload in an encrypted
+                    <a href="https://enarx.dev">Enarx Keep</a>
+                </div>
             </div>
-            {% if user %}
-            <form id="workloadForm" enctype="multipart/form-data" method="post" onsubmit="submitWorkloadForm()">
-                <div class="field">
-                    <label>Retrieve workload from: </label>
-                    <div class="control">
-                        <label class="radio">
-                            <input type="radio" class="workloadRadio" name="workloadType" value="drawbridge"
-                                onchange="updateWorkloadForm()">
-                            Drawbridge
-                        </label>
-                        <label class="radio">
-                            <input type="radio" class="workloadRadio" name="workloadType" value="browser"
-                                onchange="updateWorkloadForm()">
-                            Browser
-                        </label>
-                    </div>
-                </div>
-                <div id="drawbridge-form" class="is-hidden">
-                    <div class="field" style="display: inline-block">
-                        <label>Select a workload:</label>
-                        <br />
-                        <div class="select">
-                            <select id="slugSelect" onchange="updateWorkloadForm()">
-                                {% for example in examples %}
-                                <option>{{ example }}</option>
-                                {% endfor %}
-                                <option>[CUSTOM]</option>
-                            </select>
+            <br />
+            <div class="tile is-ancestor">
+                <div class="tile">
+                    <div class="tile is-vertical">
+                        <div class="tile is-parent">
+                            <div class="tile is-child">
+                                <p class="title">Workload</p>
+                                <p class="has-text-centered">
+                                    {% match page %}
+                                    {% when Page::Examples %}
+                                    <a href="https://enarx.dev/docs/Running/Publish">Deploy</a> an example from
+                                    <strong>Drawbridge</strong>, an Enarx package registry.
+                                    Example sources are from the <a href="https://github.com/enarx/codex">Codex</a>
+                                    repository.
+                                    {% when Page::Drawbridge %}
+                                    <a href="https://enarx.dev/docs/Running/Publish">Deploy</a> any slug from
+                                    <strong>Drawbridge</strong>, an Enarx package repository.
+                                    {% when Page::Upload %}
+                                    Upload a <a href="https://enarx.dev/docs/WebAssembly/Introduction">WebAssembly</a>
+                                    file and <a href="https://enarx.dev/docs/running/enarx_toml">Enarx
+                                        Configuration</a>.
+                                    {% endmatch %}
+                                </p>
+                                <br />
+                                <form id="workloadForm" onsubmit="onSubmit(event)">
+                                    {% match page %}
+                                    {% when Page::Examples %}
+                                    <input class="input" type="hidden" name="workloadType" value="drawbridge">
+                                    <div class="field">
+                                        <label class="label">
+                                            Select an example (<a href="https://github.com/enarx/codex">source</a>)
+                                        </label>
+                                        <div class="select">
+                                            <select name="slug">
+                                                {% for example in examples %}
+                                                <option>{{ example }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    {% when Page::Drawbridge %}
+                                    <input class="input" type="hidden" name="workloadType" value="drawbridge">
+                                    <div class="field">
+                                        <label class="label">Drawbridge package</label>
+                                        <input class="input" type="text" name="slug" placeholder="user/my-repo:0.1.0">
+                                    </div>
+                                    <div class="field">
+                                        <label class="label">Listen ports</label>
+                                        <input class="input" type="text" name="ports" placeholder="80, 3000, ...">
+                                    </div>
+                                    {% when Page::Upload %}
+                                    <input class="input" type="hidden" name="workloadType" value="upload">
+                                    <div class="file">
+                                        <label class="file-label">
+                                            <input id="wasmInput" class="file-input" type="file" name="wasm"
+                                                accept="application/wasm">
+                                            <span class="file-cta">
+                                                <span class="file-icon">
+                                                    <i class="fas fa-upload"></i>
+                                                </span>
+                                                <span class="file-label">
+                                                    WebAssembly file...
+                                                </span>
+                                            </span>
+                                            <span id="file-name" class="file-name">
+                                                No file selected
+                                            </span>
+                                        </label>
+                                    </div>
+                                    <br />
+                                    {% endmatch %}
+                                    <span class="has-text-weight-bold">Workload limits:</span>
+                                    {% match page %}
+                                    {% when Page::Examples %}
+                                    <span>{{ ttl }} seconds</span>
+                                    {% when Page::Drawbridge %}
+                                    <span>{{ ttl }} seconds</span>
+                                    {% when Page::Upload %}
+                                    <span>{{ ttl }} seconds / {{ size_human }}</span>
+                                    {% endmatch %}
+                                    <br />
+                                    <p>
+                                        {% if star %}
+                                        Thanks for starring the Enarx project!
+                                        {% else %}
+                                        To raise the workload limits, star <a href="https://github.com/enarx/enarx">the
+                                            Enarx
+                                            project</a>.
+                                        {% endif %}
+                                    </p>
+                                    <br />
+                                    <button id="deployButton" type="submit" class="button is-success">Deploy</button>
+                                    <button id="killButton" class="button is-danger" disabled
+                                        onclick="killWorkload(event)">Kill</button>
+                                </form>
+                            </div>
                         </div>
-                        <div id="customSlugDiv" class="is-hidden">
-                            <label>Enter your drawbridge slug:</label>
-                            <br />
-                            <input class="input" id="customSlug" type="text" placeholder="user/my-repo:0.1.0"
-                                oninput="updateWorkloadForm()">
+                        <div class="tile is-parent">
+                            <div class="tile is-child">
+                                <p class="title">Ports</p>
+                                <div id="ports" class="is-size-5"></div>
+                            </div>
                         </div>
-                        <input id="submitSlug" type="hidden" name="slug" />
                     </div>
-                    <br />
-                    <span class="is-pulled-right p-2">
-                        <span class="has-text-weight-bold">Workload Limits:</span>
-                        <span>{{ ttl }} seconds</span>
-                    </span>
                 </div>
-                <div id="browser-form" class="is-hidden">
-                    <div id="upload_file" class="file has-name" style="display: inline-block">
-                        <label class="file-label">
-                            <input id="wasmInput" class="file-input" type="file" name="wasm" accept="application/wasm"
-                                onchange="updateWorkloadForm()">
-                            <span class="file-cta">
-                                <span class="file-icon">
-                                    <i class="fas fa-upload"></i>
-                                </span>
-                                <span class="file-label">
-                                    Choose a Wasm file…
-                                </span>
-                            </span>
-                            <span class="file-name">
-                                No file uploaded
-                            </span>
-                        </label>
+                <div class="tile is-8">
+                    <div class="tile is-vertical">
+                        {% match page %}
+                        {% when Page::Examples %}
+                        {% when Page::Drawbridge %}
+                        {% when Page::Upload %}
+                        <div class="tile is-parent">
+                            <div class="tile is-child">
+                                <p class="title">Configuration</p>
+                                <pre id="editor">{{ toml }}</pre>
+                            </div>
+                        </div>
+                        {% endmatch %}
+                        <div class="tile is-parent">
+                            <div class="tile is-child">
+                                <p class="title">Console</p>
+                                <pre id="console" style="border-radius: 5px"></pre>
+                            </div>
+                        </div>
                     </div>
-                    <br />
-                    <span class="is-pulled-right p-2">
-                        <span class="has-text-weight-bold">Workload Limits:</span>
-                        <span>{{ ttl }} seconds / {{ size_human }}</span>
-                    </span>
                 </div>
-                <input id="upload_toml" type="hidden" name="toml" />
-                <br />
-                <div id="editorDiv" class="is-hidden">
-                    <a href="https://enarx.dev/docs/running/enarx_toml">Configuration</a><span id="enarxTomlReadOnly"
-                        class="is-hidden"> (read only)</span>:
-                    <pre id="editor" style="min-height: 50vh; resize: none">{{ toml }}</pre>
-                    <pre id="enarx_toml_template_backup" class="is-hidden">{{ toml }}</pre>
-                </div>
-                <div id="upload_submit" class="is-hidden">
-                    <br />
-                    <input type="submit" class="button is-primary is-large" value="Deploy workload"
-                        style="width: 100%" />
-                </div>
-            </form>
-            {% endif %}
+            </div>
         </div>
     </section>
-    <!-- A quick workaround to get data into javascript without breaking anything is to use invisible tags -->
-    {% if user %}<div id="authenticated" style="display: none"></div>{% endif %}
+    <section class="bd-index-section" style="--bd-section-h: 229deg;">
+        <div class="bd-heading">
+            <span class="icon has-text-link is-size-2-widescreen">
+                <i class="fas fa-microchip"></i>
+            </span>
+            <h2 class="title has-text-black mb-0 is-size-2-widescreen">
+                Select a <strong>platform</strong>
+            </h2>
+            <div class="subtitle mb-0 mt-0 is-size-4-widescreen">
+                Try another <strong>platform</strong>
+            </div>
+        </div>
+        <div class="container">
+            <div class="columns">
+                <div class="column">
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <div class="bd-tw-content">
+                            <a href="https://sgx.equinix.try.enarx.dev/" target="_blank"><img
+                                    src="https://try.enarx.dev/img/equinix_intel.png" alt="Intel on Equinix"></a>
+                        </div>
+                    </article>
+                </div>
+                <div class="column">
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <div class="bd-tw-content">
+                            <a href="https://snp.equinix.try.enarx.dev/" target="_blank"><img
+                                    src="https://try.enarx.dev/img/equinix_amd.png" alt="AMD on Equinix"></a>
+                        </div>
+                    </article>
+                </div>
+                <div class="column">
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>Other platforms coming soon</strong>
+                        </header>
+                    </article>
+                </div>
+            </div>
+        </div>
+    </section>
+    <section class="bd-index-section">
+        <div class="bd-heading">
+            <span class="icon has-text-success is-size-2-widescreen">
+                <i class="fas fa-graduation-cap"></i>
+            </span>
+            <h2 class="title has-text-black mb-0 is-size-2-widescreen">
+                Choose a <strong>language</strong>
+            </h2>
+            <div class="subtitle mb-0 mt-0 is-size-4-widescreen">
+                Learn how to compile to <strong>WebAssembly</strong>
+            </div>
+            <a class="button bd-fat-button is-success is-light is-size-4-widescreen"
+                href="https://enarx.dev/docs/WebAssembly/Introduction" target="_blank">
+                <span class="icon has-text-success">
+                    <i class="fas fa-graduation-cap"></i>
+                </span>
+                <span>
+                    Visit the <strong>Wasm</strong> guide
+                </span>
+            </a>
+        </div>
+        <div class="container">
+            <div class="columns">
+                <div class="column">
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>C</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/C" target="_blank"><img
+                                    src="https://try.enarx.dev/img/c_128x128.png" alt="C"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>Rust</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/Rust" target="_blank"><img
+                                    src="https://try.enarx.dev/img/rust_128x128.png" alt="Rust"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>AssemblyScript</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/AssemblyScript" target="_blank"><img
+                                    src="https://try.enarx.dev/img/assemblyscript_128x128.png" alt="AssemblyScript"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>Python</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/Python" target="_blank"><img
+                                    src="https://try.enarx.dev/img/python_128x128.png" alt="Python"></a>
+                        </div>
+                    </article>
+                </div>
+                <div class="column">
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>C++</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/C++" target="_blank"><img
+                                    src="https://try.enarx.dev/img/cpp_128x128.png" alt="C++"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>Golang</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/Golang" target="_blank"><img
+                                    src="https://try.enarx.dev/img/golang_128x128.png" alt="Golang"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>JavaScript</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/JavaScript" target="_blank"><img
+                                    src="https://try.enarx.dev/img/javascript_128x128.png" alt="JavaScript"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>Swift</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/Swift" target="_blank"><img
+                                    src="https://try.enarx.dev/img/swift_128x128.png" alt="Swift"></a>
+                        </div>
+                    </article>
+                </div>
+                <div class="column">
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>.NET</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/dotnet" target="_blank"><img
+                                    src="https://try.enarx.dev/img/csharp_128x128.png" alt=".NET"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>Ruby</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/Ruby" target="_blank"><img
+                                    src="https://try.enarx.dev/img/ruby_128x128.png" alt="Ruby"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>TypeScript</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="https://enarx.dev/docs/webassembly/TypeScript" target="_blank"><img
+                                    src="https://try.enarx.dev/img/typescript_128x128.png" alt="TypeScript"></a>
+                        </div>
+                    </article>
+                    <article class="bd-tw bd-best-item bd-is-huge ">
+                        <header class="bd-tw-header">
+                            <strong>Java</strong>
+                        </header>
+                        <div class="bd-tw-content">
+                            <a href="#"><img src="https://try.enarx.dev/img/java_128x128.png" alt="Java"></a>
+                        </div>
+                    </article>
+                </div>
+            </div>
+        </div>
+    </section>
+    <section class="bd-index-section" style="--bd-section-h: 44deg;">
+        <div class="bd-heading">
+            <span class="icon has-text-expo is-size-2-widescreen">
+                <i class="fas fa-star"></i>
+            </span>
+            <h2 class="title has-text-black mb-0 is-size-2-widescreen">
+                <strong>Wasm gallery</strong>
+            </h2>
+            <div class="subtitle mb-0 mt-0 is-size-4-widescreen">
+                Explore the <strong>examples</strong>. More coming soon...
+            </div>
+            <a class="button bd-fat-button is-expo is-light is-size-4-widescreen" href="https://github.com/enarx/codex"
+                target="_blank">
+                <span class="icon has-text-expo">
+                    <i class="fas fa-star"></i>
+                </span>
+                <span>
+                    Visit the <strong>Codex</strong> repo
+                </span>
+            </a>
+        </div>
+        <div class="bd-screenshots">
+            <a class="bd-screenshot " href="https://github.com/enarx/GreenhouseMonitor" target="_blank">
+                <img src="https://try.enarx.dev/img/greenhouse.png" width="700" height="350" alt="GreenhouseMonitor">
+                <button class="button is-info" style="width:100%; margin-top:10px;">Greenhouse Monitor</button>
+            </a>
+            <a class="bd-screenshot " href="https://github.com/enarx/cryptle" target="_blank">
+                <img src="https://try.enarx.dev/img/cryptle.png" width="700" height="350" alt="Cryptle">
+                <button class="button is-info" style="width:100%; margin-top:10px;">Cryptle</button>
+            </a>
+            <a class="bd-screenshot " href="https://github.com/enarx/codex/tree/main/Rust/tokio-http" target="_blank">
+                <img src="https://try.enarx.dev/img/tokio-minihttp.png" width="700" height="350" alt="Tokio Mini HTTP">
+                <button class="button is-info" style="width:100%; margin-top:10px;">Tokio Mini HTTP</button>
+            </a>
+            <a class="bd-screenshot " href="https://github.com/enarx/codex/tree/main/Rust/mio-echo-tcp" target="_blank">
+                <img src="https://try.enarx.dev/img/tokio-mio.png" width="700" height="350" alt="Mio TCP Echo Server">
+                <button class="button is-info" style="width:100%; margin-top:10px;">Mio TCP Echo Server</button>
+            </a>
+        </div>
+    </section>
+    <section class="bd-index-section" style="--bd-section-h: 330deg;">
+        <div class="container">
+            <header class="has-text-centered">
+                <h3 class="title is-3">
+                    <a class="has-text-info" href="https://chat.enarx.dev">
+                        Join our <strong>community</strong>
+                    </a>
+                </h3>
+            </header>
+            <div class="hero-buttons">
+                <a class="button bd-fat-button is-info is-large" href="https://chat.enarx.dev" target="_blank">
+                    <span class="icon">
+                        <i class="fas fa-commenting-o"></i>
+                    </span>
+                    <span><strong>Chat</strong></span>
+                </a>
+                <a class="button bd-fat-button is-black is-large" href="https://github.com/enarx/enarx" target="_blank">
+                    <span class="icon">
+                        <i class="fab fa-github"></i>
+                    </span>
+                    <span>GitHub</span>
+                </a>
+            </div>
+        </div>
+    </section>
+    <footer class="footer">
+        <div class="container">
+            <div class="bd-footer-links">
+                <div class="columns">
+                    <div class="column">
+                        <p class="bd-footer-link-title">
+                            <a href="https://enarx.dev">Documentation</a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/Start/Introduction">
+                                Getting Started
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/QuickStart">
+                                Installation Guide
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/Running/Publish">
+                                Running Enarx Guide
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/WebAssembly/Introduction">
+                                WebAssembly Guide
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/Contributing/Introduction">
+                                Contributing Guide
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/Repo/Introduction/">
+                                Enarx Repo Guide
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/Technical/Introduction">
+                                Technical Overview
+                            </a>
+                        </p>
+                    </div>
+                    <div class="column">
+                        <p class="bd-footer-link-title">
+                            <a href="https://enarx.dev/resources">Resources</a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/resources">
+                                All Resources
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/resources/tags">
+                                All Tags
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/resources/tags/release">
+                                Releases
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/resources/tags/white-paper">
+                                White Papers
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/resources/tags/enarxs-blog">
+                                Blog Posts
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/resources/tags/article">
+                                Articles
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/resources/tags/event">
+                                Events
+                            </a>
+                        </p>
+                    </div>
+                    <div class="column">
+                        <p class="bd-footer-link-title">
+                            <a href="https://enarx.dev">Community</a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://github.com/enarx/enarx">
+                                GitHub
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://chat.enarx.dev/">
+                                Chat
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://blog.enarx.dev/">
+                                Blog
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://twitter.com/enarxproject">
+                                Twitter
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/events">
+                                Events
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/webinars">
+                                Webinars
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/meetings">
+                                Meetings
+                            </a>
+                        </p>
+                    </div>
+                    <div class="column">
+                        <p class="bd-footer-link-title">
+                            <a href="https://enarx.dev">Initiatives</a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://try.enarx.dev">
+                                Try Enarx
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/docs/Fellowship/Introduction">
+                                Fellowship Program
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://enarx.dev/cryptle">
+                                Cryptle Hack Challenge
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://wasm.builders">
+                                Wasm Builders
+                            </a>
+                        </p>
+                        <p class="bd-footer-link">
+                            <a href="https://github.com/enarx/codex/">
+                                Wasm Codex
+                            </a>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+    {% if user %}<div id="authenticated" class="is-hidden"></div>{% endif %}
     <script>
-        function sanitizeHtml(text) {
-            var element = document.createElement('div');
-            element.innerText = text;
-            return element.innerHTML;
-        }
-
-        var authenticated = window.document.getElementById("authenticated");
-        var queryParams = new URLSearchParams(window.location.search);
-        var messageCode = queryParams.get('message');
-        var messageHTML = [];
-        var warningMessage = window.document.getElementById("warning_message");
-        var messageDiv = window.document.getElementById("message");
-        var enarxTomlReadOnlyDiv = window.document.getElementById("enarxTomlReadOnly");
-        var editorDiv = window.document.getElementById("editorDiv");
-        var lastSlug = '';
-        var customSlugValue = '[CUSTOM]';
-
-        function showTag(tag) {
-            if (tag) {
-                tag.classList.remove("is-hidden");
-            }
-        }
-
-        function hideTag(tag) {
-            if (tag) {
-                tag.classList.add("is-hidden");
-            }
-        }
-
-        // SECURITY: Do not put unsanitized user input in html.
-        switch (messageCode) {
-            case 'too_many_workloads': {
-                messageHTML.push("Too many workloads are running on this server! Please try again later.");
-                break;
-            }
-            case 'too_many_listeners': {
-                var max = queryParams.get('max');
-                messageHTML.push(
-                    "You are trying to listen on more than " + sanitizeHtml(max) + " ports. Please remove some of them and try again."
-                );
-                break;
-            }
-            case 'illegal_ports': {
-                var ports = queryParams.get('ports').split(',').join(', ');
-                var range = queryParams.get('range').split('-');
-                messageHTML.push(
-                    "Some listen port(s) (" + sanitizeHtml(ports) + ") are outside of the acceptable range of " +
-                    sanitizeHtml(range[0]) + "-" + sanitizeHtml(range[1]) + ". Please change them and try again."
-                );
-                break;
-            }
-            case 'port_conflicts': {
-                var ports = queryParams.get('ports').split(',').join(', ');
-                messageHTML.push("Some listen port(s) are already in use (" + sanitizeHtml(ports) + "). Please change them and try again.");
-                break;
-            }
-            default: {
-                break;
-            }
-        }
-
         var enarxTomlEditor = null;
+        var console = window.document.getElementById('console');
+        var deployButton = window.document.getElementById('deployButton');
+        var killButton = window.document.getElementById('killButton');
+        var __workload = null;
+        var authenticated = window.document.getElementById('authenticated');
 
-        if (authenticated) {
-            var authLink = window.document.getElementById("auth");
-            authLink.setAttribute("href", "/logout");
-            authLink.textContent = "Logout";
+        $(function () {
+            if (document.getElementById("editor")) {
+                enarxTomlEditor = ace.edit("editor");
+                enarxTomlEditor.session.setMode("ace/mode/toml");
+            }
 
-            enarxTomlEditor = ace.edit("editor");
-            enarxTomlEditor.session.setMode("ace/mode/toml");
-        } else {
-            messageHTML.push('Please <a href="/login">Log in</a> with GitHub to submit Wasm workloads.');
-        }
+            var fileInput = document.querySelector('#wasmInput');
 
-        if (messageHTML.length !== 0) {
-            showTag(warningMessage);
-            messageDiv.innerHTML = messageHTML.join("<br />")
-        }
-
-        function httpGetAsync(theUrl, callback) {
-            var xmlHttp = new XMLHttpRequest();
-            xmlHttp.onreadystatechange = function () {
-                if (xmlHttp.readyState == 4) {
-                    if (xmlHttp.status == 200) {
-                        callback(xmlHttp.responseText);
-                    } else {
-                        var error;
-
-                        if (xmlHttp.responseText === '') {
-                            if (xmlHttp.status !== 0) {
-                                error = 'Request failed with status code: ' + xmlHttp.status
-                            } else {
-                                error = 'Request failed'
-                            }
-                        } else {
-                            error = xmlHttp.responseText;
-                        }
-
-                        callback(null, error);
+            if (fileInput) {
+                fileInput.onchange = () => {
+                    if (fileInput.files.length > 0) {
+                        const fileName = document.querySelector('#file-name');
+                        fileName.textContent = fileInput.files[0].name;
                     }
                 }
             }
-            xmlHttp.open("GET", theUrl, true); // true for asynchronous 
-            xmlHttp.send(null);
-        }
 
-        function selectedSlugOption() {
-            return window.document.getElementById('slugSelect').value;
-        }
+            consoleClear();
+            setWorkload(null);
+            killWorkload();
+            setAuthenticated(authenticated);
 
-        function customSlugSelected() {
-            return selectedSlugOption() == customSlugValue;
-        }
-
-        function customSlug() {
-            if (!customSlugSelected()) {
-                return '';
+            if (!authenticated) {
+                consoleWrite('> Please login to deploy workloads\n');
             }
+        });
 
-            return window.document.getElementById('customSlug').value;
+        function consoleClear() {
+            console.innerText = '';
         }
 
-        function currentSlug() {
-            if (customSlugSelected()) {
-                return customSlug();
-            } else {
-                return selectedSlugOption();
+        function consoleWrite(text) {
+            if (text != '') {
+                console.innerText = console.innerText + text;
             }
         }
 
@@ -319,229 +720,165 @@
             }
         }
 
-        // TODO: This is probably going to break with some slugs
-        function slugRepoTag(slug) {
-            if (slug.indexOf(':') == -1) {
-                return 'Missing \':\' followed by tag';
+        function onSubmit(event) {
+            event.preventDefault();
+
+            var data = new FormData(document.querySelector('#workloadForm'))
+
+            if (enarxTomlEditor) {
+                data.append('toml', enarxTomlEditor.getValue());
             }
 
-            var split = slug.split(':');
-            var repo = split[0];
-            var tag = split[1];
+            consoleClear();
+            consoleWrite('> Starting workload...\n');
 
-            if (repo == '') {
-                return 'Missing username and repo';
-            }
+            $.ajax({
+                url: '/',
+                data,
+                cache: false,
+                contentType: false,
+                processData: false,
+                method: 'POST',
+                success: function (data) {
+                    setWorkload(data);
+                    setAuthenticated(true);
+                },
+                error: function (error) {
+                    setWorkload(null);
+                    consoleClear();
+                    consoleWrite('> Failed to start workload: ' + error.statusText + '\n');
 
-            if (tag == '') {
-                return 'Missing tag';
-            }
+                    if (error.responseText) {
+                        consoleWrite('\n' + error.responseText);
+                    }
 
-            return split;
+                    if (error.status == 401) {
+                        setAuthenticated(false);
+                    }
+                }
+            });
         }
 
-        function slugToEnarxTomlUrl(repoTag) {
-            return 'https://store.profian.com/api/v0.2.0/' + repo[0] + '/_tag/' + tag[1] + '/tree/Enarx.toml';
+        function killWorkload(event) {
+            if (event) {
+                event.preventDefault();
+            }
+
+            if (getWorkload()) {
+                setWorkload(null);
+                $.ajax({ url: '/', method: 'DELETE', });
+                consoleWrite('> Killing workload');
+            }
         }
 
-        function getEnarxTomlFromDrawbridge(slug, callback) {
-            var repoAndTag = slugRepoTag(slug);
+        var errorCount = 0;
+        var pendingRequests = 0;
 
-            if (typeof repoAndTag == 'string') {
-                callback(null, 'Failed to parse slug: ' + repoAndTag);
+        setInterval(function () {
+            if (!getWorkload()) {
                 return;
             }
 
-            try {
-                httpGetAsync(slugToEnarxTomlUrl(repoAndTag), callback);
-            } catch (_error) {
-                try {
-                    // Fallback to asking the server to get it.
-                    httpGetAsync('/enarx_toml_fallback?repo=' + repoAndTag[0] + '&tag=' + repoAndTag[1], callback);
-                } catch (error) {
-                    callback(null, 'Failed to make request to server: ' + error)
-                }
-            }
-        }
+            function fetchConsoleOutput(urls) {
+                for (var i = 0; i < urls.length; i++) {
+                    pendingRequests++;
+                    var url = urls[i];
 
-        function hideMessage() {
-            hideTag(warningMessage);
-        }
+                    $.ajax({
+                        url,
+                        method: 'POST',
+                        success: function (data) {
+                            errorCount = 0;
+                            consoleWrite(data);
+                            pendingRequests--;
+                            setAuthenticated(true);
+                        },
+                        error: function (error) {
+                            errorCount++;
 
-        function getWorkloadType() {
-            var workloadRadios = window.document.getElementsByClassName('workloadRadio');
+                            if (errorCount > 10) {
+                                setWorkload(null);
+                            }
 
-            for (var ri = 0; ri < workloadRadios.length; ri++) {
-                var workloadRadio = workloadRadios[ri];
-
-                if (workloadRadio.checked) {
-                    return workloadRadio.value;
-                }
-            }
-
-            return 'none';
-        }
-
-        function submitWorkloadForm() {
-            switch (getWorkloadType()) {
-                case 'drawbridge': {
-                    var submitSlug = window.document.getElementById("submitSlug");
-                    submitSlug.value = currentSlug();
-                    break;
-                }
-                case 'browser': {
-                    var uploadToml = window.document.getElementById("upload_toml");
-                    uploadToml.setAttribute("value", enarxTomlEditor.getValue());
-                    break;
-                }
-                default: {
-                    break;
-                }
-            }
-        }
-
-        function updateWorkloadForm() {
-            var workloadType = getWorkloadType();
-            var workloadForms = {
-                drawbridge: window.document.getElementById('drawbridge-form'),
-                browser: window.document.getElementById('browser-form'),
-            };
-            var formKeys = Object.keys(workloadForms);
-
-            for (var fi in formKeys) {
-                var formKey = formKeys[fi];
-                var formTag = workloadForms[formKey];
-
-                if (workloadType == formKey) {
-                    showTag(formTag);
-                } else {
-                    hideTag(formTag);
-                }
-            }
-
-            var wasmInput = window.document.getElementById('wasmInput');
-            var uploadTomlInput = window.document.getElementById("upload_toml");
-
-            var uploadSubmit = window.document.getElementById("upload_submit");
-
-            switch (workloadType) {
-                case 'drawbridge': {
-                    var customSlugDiv = window.document.getElementById('customSlugDiv');
-                    wasmInput.setAttribute('disabled', '');
-                    uploadTomlInput.setAttribute('disabled', '');
-
-                    if (customSlugSelected()) {
-                        showTag(customSlugDiv);
-
-                        if (typeof slugRepoTag(customSlug()) != 'string') {
-                            showTag(uploadSubmit);
-                        } else {
-                            hideTag(uploadSubmit);
+                            pendingRequests--;
                         }
-                    } else {
-                        hideTag(customSlugDiv);
-                        showTag(uploadSubmit);
-                    }
-
-                    setSlugParam(currentSlug());
-                    showTag(editorDiv);
-                    showTag(enarxTomlReadOnlyDiv);
-                    enarxTomlEditor.setReadOnly(true);
-                    break;
-                }
-                case 'browser': {
-                    lastSlug = '';
-
-                    wasmInput.removeAttribute('disabled');
-                    uploadTomlInput.removeAttribute('disabled');
-
-                    enarxTomlEditor.setValue(
-                        window.document.getElementById('enarx_toml_template_backup').innerText,
-                        -1
-                    );
-
-                    var fileInput = document.querySelector('#upload_file input[type=file]');
-
-                    if (fileInput.files.length > 0) {
-                        var fileName = document.querySelector('#upload_file .file-name');
-                        fileName.textContent = fileInput.files[0].name;
-                        showTag(uploadSubmit);
-                    } else {
-                        hideTag(uploadSubmit);
-                    }
-
-                    setSlugParam();
-                    showTag(editorDiv);
-                    hideTag(enarxTomlReadOnlyDiv);
-                    enarxTomlEditor.setReadOnly(false);
-                    break;
-                }
-                default: {
-                    break;
+                    });
                 }
             }
 
-            // Let it run by itself on the setInterval timeout below.
-            // Removing this condition will result in a flood of requests when users type customs slugs.
-            if (!customSlugSelected()) {
-                refreshEnarxToml();
+            if (pendingRequests == 0) {
+                fetchConsoleOutput(["/out", "/err"]);
             }
+        }, 250);
+
+        function getWorkload() {
+            return __workload;
         }
 
-        function refreshEnarxToml() {
-            function shouldUpdate() {
-                return getWorkloadType() === 'drawbridge';
-            }
+        function workloadPorts() {
+            return Object.keys(__workload.ports).length;
+        }
 
-            if (!shouldUpdate()) {
+        function setWorkload(newWorkload) {
+            __workload = newWorkload;
+            var portsTag = window.document.getElementById('ports');
+
+            if (!getWorkload()) {
+                portsTag.innerText = 'No workload running';
+                deployButton.removeAttribute('disabled');
+                killButton.setAttribute('disabled', '');
                 return;
             }
 
-            var slug = currentSlug();
+            deployButton.setAttribute('disabled', '');
+            killButton.removeAttribute('disabled');
 
-            if (lastSlug != slug) {
-                if (slug == '') {
-                    enarxTomlEditor.setValue('# Waiting…', -1);
-                } else {
-                    enarxTomlEditor.setValue('# Fetching Enarx.toml from ' + slug + '…', -1);
+            if (workloadPorts() == 0) {
+                portsTag.innerText = 'No pre-opened ports';
+                return;
+            }
 
-                    getEnarxTomlFromDrawbridge(
-                        slug,
-                        function (body, error) {
-                            if (!shouldUpdate()) {
-                                return;
-                            }
+            function portList() {
+                var result = '';
+                var mappedPorts = Object.entries(getWorkload().ports);
 
-                            if (error) {
-                                enarxTomlEditor.setValue('# Failed to pull Enarx.toml: ' + error, -1);
-                                return;
-                            }
-
-                            enarxTomlEditor.setValue(body, -1);
-                        }
-                    )
+                for (var i = 0; i < mappedPorts.length; i++) {
+                    var map = mappedPorts[i];
+                    var containerPort = map[0];
+                    var hostPort = map[1];
+                    result +=
+                        '<li>Port ' + containerPort + ' -> ' + hostPort +
+                        ' (<a href="https://' + window.location.hostname + ':' + hostPort + '/">link</a>)</li>';
                 }
 
-                lastSlug = slug;
+                return result;
             }
+
+            portsTag.innerHTML = '<ul>' + portList() + '</ul>';
+            // setAuthenticated overrides button states set by setWorkload
+            setAuthenticated(authenticated);
         }
 
-        var querySlug = queryParams.get('slug');
+        function setAuthenticated(isAuthenticated) {
+            authenticated = isAuthenticated;
+            var userNav = window.document.getElementById('userNav');
+            var noUserNav = window.document.getElementById('noUserNav');
 
-        if (querySlug) {
-            var form = window.document.getElementById('workloadForm');
-            form.elements["workloadType"].value = 'drawbridge';
-            setSlugField(querySlug);
-            updateWorkloadForm();
-        }
+            if (isAuthenticated) {
+                deployButton.removeAttribute('disabled');
+                noUserNav.setAttribute('class', 'is-hidden');
+                userNav.setAttribute('class', '');
+            } else {
+                deployButton.setAttribute('disabled', '');
+                noUserNav.setAttribute('class', '');
+                userNav.setAttribute('class', 'is-hidden');
+            }
 
-        setInterval(refreshEnarxToml, 1000);
-
-        if (performance.navigation.type === performance.navigation.TYPE_RELOAD) {
-            updateWorkloadForm();
+            if (enarxTomlEditor) {
+                enarxTomlEditor.setReadOnly(!authenticated);
+            }
         }
     </script>
-
 </body>
 
 </html>

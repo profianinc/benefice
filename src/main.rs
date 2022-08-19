@@ -77,8 +77,10 @@ static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
 
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
-const TOML_MAX: usize = 256 * 1024; // 256 KiB
-const ENARX_DOCKER_IMAGE_TAG: &str = "enarx:0.6.3";
+// 256 KiB
+const TOML_MAX: usize = 256 * 1024;
+// TODO: use the official image when it exists: https://github.com/profianinc/benefice/issues/125
+const ENARX_DOCKER_IMAGE_TAG: &str = "platten/enarx:0.6.3";
 
 lazy_static! {
     static ref EXAMPLES: Vec<&'static str> = include_str!("../examples.txt")

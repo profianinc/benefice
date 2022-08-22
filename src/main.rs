@@ -41,6 +41,7 @@ use self::jobs::Jobs;
 
 use crate::templates::{HtmlTemplate, IdxTemplate, Page};
 
+use std::ffi::OsString;
 use std::fs::read;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -78,7 +79,7 @@ static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
-const ENARX_DOCKER_IMAGE_TAG: &str = "enarx/enarx:0.6.3";
+const ENARX_OCI_IMAGE_TAG: &str = "enarx/enarx:0.6.3";
 
 lazy_static! {
     static ref EXAMPLES: Vec<&'static str> = include_str!("../examples.txt")
@@ -126,17 +127,22 @@ struct Args {
     #[clap(long, default_value_t = 15 * 60)]
     timeout_starred: u64,
 
-    /// The lowest listen port to be allocated via docker.
+    /// The lowest listen port to be allocated via the selected OCI container engine.
     #[clap(long, default_value_t = 0)]
     port_min: u16,
 
-    /// The highest listen port to be allocated via docker.
+    /// The highest listen port to be allocated via the selected OCI container engine.
     #[clap(long, default_value_t = 0)]
     port_max: u16,
 
     /// The maximum number of listen ports a workload is allowed to have (0 to disable).
     #[clap(long, default_value_t = 0)]
     listen_max: u16,
+
+    /// OCI container engine command to execute, for example, `docker` or `podman`.
+    /// This may also be an absolute path.
+    #[clap(long, default_value = "docker")]
+    oci_command: OsString,
 
     /// OpenID Connect issuer URL.
     #[clap(long, default_value = "https://auth.profian.com/")]
@@ -190,6 +196,7 @@ impl Args {
             } else {
                 Some(self.listen_max)
             },
+            oci_command: self.oci_command,
         };
 
         (limits, oidc, other)
@@ -241,6 +248,7 @@ struct Other {
     jobs: usize,
     port_range: Option<Range<u16>>,
     listen_max: Option<u16>,
+    oci_command: OsString,
 }
 
 #[tokio::main]
@@ -309,6 +317,7 @@ async fn main() -> anyhow::Result<()> {
                         other.port_range,
                         other.listen_max,
                         other.jobs,
+                        other.oci_command,
                     )
                 })
                 .delete(root_delete),
@@ -350,6 +359,7 @@ async fn root_post(
     port_range: Option<Range<u16>>,
     listen_max: Option<u16>,
     jobs: usize,
+    oci_command: OsString,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -596,7 +606,14 @@ async fn root_post(
                 .into_response());
         }
 
-        let job = Job::new(workload_type, slug, wasm, toml, mapped_ports.clone())?;
+        let job = Job::new(
+            workload_type,
+            slug,
+            wasm,
+            toml,
+            oci_command,
+            mapped_ports.clone(),
+        )?;
         JOBS.write().await.insert(user, job);
     }
 

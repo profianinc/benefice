@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use crate::ports;
-use crate::ENARX_DOCKER_IMAGE_TAG;
+use crate::ENARX_OCI_IMAGE_TAG;
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::process::Stdio;
 use std::str::FromStr;
 
@@ -50,6 +51,9 @@ pub(crate) struct Job {
     slug: Option<String>,
     wasm: Option<NamedTempFile>,
     toml: Option<NamedTempFile>,
+
+    /// OCI container engine command
+    oci_command: OsString,
     mapped_ports: HashMap<u16, u16>,
 }
 
@@ -67,6 +71,7 @@ impl Job {
         slug: Option<String>,
         wasm: Option<NamedTempFile>,
         toml: Option<NamedTempFile>,
+        oci_command: OsString,
         mapped_ports: HashMap<u16, u16>,
     ) -> Result<Self, Response> {
         let uuid = Uuid::new_v4();
@@ -85,11 +90,11 @@ impl Job {
                 let slug = slug
                     .as_ref()
                     .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-                Command::new("docker")
+                Command::new(&oci_command)
                     .args(&["run", "--rm", "--name"])
                     .arg(&uuid.to_string())
                     .args(mapped_ports_args)
-                    .arg(ENARX_DOCKER_IMAGE_TAG)
+                    .arg(ENARX_OCI_IMAGE_TAG)
                     .arg("enarx")
                     .arg("deploy")
                     .arg(slug)
@@ -118,7 +123,7 @@ impl Job {
                     error!("Failed to get toml path as str");
                     StatusCode::INTERNAL_SERVER_ERROR.into_response()
                 })?;
-                Command::new("docker")
+                Command::new(&oci_command)
                     .args(&["run", "--rm", "--name"])
                     .arg(&uuid.to_string())
                     .arg("-v")
@@ -126,7 +131,7 @@ impl Job {
                     .arg("-v")
                     .arg(format!("{}:/app/main.wasm", wasm_path_str))
                     .args(mapped_ports_args)
-                    .arg(ENARX_DOCKER_IMAGE_TAG)
+                    .arg(ENARX_OCI_IMAGE_TAG)
                     .arg("enarx")
                     .arg("run")
                     .arg("--wasmcfgfile")
@@ -151,6 +156,7 @@ impl Job {
             slug,
             wasm,
             toml,
+            oci_command,
             mapped_ports,
         })
     }
@@ -167,7 +173,7 @@ impl Job {
     }
 
     pub(crate) async fn kill(&mut self) {
-        match Command::new("docker")
+        match Command::new(&self.oci_command)
             .arg("kill")
             .arg(&self.uuid.to_string())
             .spawn()

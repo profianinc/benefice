@@ -7,5 +7,4 @@ examples/fibonacci-go:0.3.0
 examples/fibonacci-grain:0.1.0
 examples/fibonacci-rust:0.3.0
 examples/fibonacci-zig:0.4.0
-examples/greenhouse-monitor-csharp:0.1.0
 examples/http-rust-tokio:0.2.0

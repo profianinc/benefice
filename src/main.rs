@@ -108,7 +108,8 @@ struct Args {
     url: auth::Url,
 
     /// Maximum jobs.
-    #[clap(long, default_value_t = num_cpus::get())]
+    /// Defaults to 16x the number of cores on the system.
+    #[clap(long, default_value_t = num_cpus::get() * 16)]
     jobs: usize,
 
     /// Default file size limit (in MiB).

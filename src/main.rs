@@ -79,7 +79,6 @@ static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
-const ENARX_OCI_IMAGE_TAG: &str = "enarx/enarx:0.6.3";
 
 lazy_static! {
     static ref EXAMPLES: Vec<&'static str> = include_str!("../examples.txt")
@@ -144,6 +143,11 @@ struct Args {
     #[clap(long, default_value = "docker")]
     oci_command: OsString,
 
+    /// OCI image tag to use.
+    /// Defaults to the last tested image from https://hub.docker.com/r/enarx/enarx
+    #[clap(long, default_value = "enarx/enarx:0.6.3")]
+    oci_image: OsString,
+
     /// OpenID Connect issuer URL.
     #[clap(long, default_value = "https://auth.profian.com/")]
     oidc_issuer: auth::Url,
@@ -197,6 +201,7 @@ impl Args {
                 Some(self.listen_max)
             },
             oci_command: self.oci_command,
+            oci_image_tag: self.oci_image,
         };
 
         (limits, oidc, other)
@@ -249,6 +254,7 @@ struct Other {
     port_range: Option<Range<u16>>,
     listen_max: Option<u16>,
     oci_command: OsString,
+    oci_image_tag: OsString,
 }
 
 #[tokio::main]
@@ -318,6 +324,7 @@ async fn main() -> anyhow::Result<()> {
                         other.listen_max,
                         other.jobs,
                         other.oci_command,
+                        other.oci_image_tag,
                     )
                 })
                 .delete(root_delete),
@@ -352,6 +359,7 @@ async fn root_get(user: Option<User>, limits: Limits, page: Page) -> impl IntoRe
 }
 
 // TODO: create tests for endpoints: #38
+#[allow(clippy::too_many_arguments)]
 async fn root_post(
     user: Option<User>,
     mut multipart: Multipart,
@@ -360,6 +368,7 @@ async fn root_post(
     listen_max: Option<u16>,
     jobs: usize,
     oci_command: OsString,
+    oci_image_tag: OsString,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -607,6 +616,7 @@ async fn root_post(
         }
 
         let job = Job::new(
+            oci_image_tag,
             workload_type,
             slug,
             wasm,

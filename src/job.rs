@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 use crate::ports;
-use crate::ENARX_OCI_IMAGE_TAG;
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -67,6 +66,7 @@ impl Drop for Job {
 
 impl Job {
     pub(crate) fn new(
+        oci_image_tag: OsString,
         workload_type: String,
         slug: Option<String>,
         wasm: Option<NamedTempFile>,
@@ -94,7 +94,7 @@ impl Job {
                     .args(&["run", "--rm", "--name"])
                     .arg(&uuid.to_string())
                     .args(mapped_ports_args)
-                    .arg(ENARX_OCI_IMAGE_TAG)
+                    .arg(oci_image_tag)
                     .arg("enarx")
                     .arg("deploy")
                     .arg(slug)
@@ -131,7 +131,7 @@ impl Job {
                     .arg("-v")
                     .arg(format!("{}:/app/main.wasm", wasm_path_str))
                     .args(mapped_ports_args)
-                    .arg(ENARX_OCI_IMAGE_TAG)
+                    .arg(oci_image_tag)
                     .arg("enarx")
                     .arg("run")
                     .arg("--wasmcfgfile")

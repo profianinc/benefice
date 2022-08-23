@@ -598,7 +598,7 @@ async fn root_post(
             return Err(Redirect::to("/").into_response());
         }
 
-        if JOBS.read().await.count() >= jobs {
+        if JOBS.read().await.running_count().await >= jobs {
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Too many workloads are running right now, try again later",

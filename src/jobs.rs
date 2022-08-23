@@ -7,6 +7,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use crate::job::Status;
+
 use super::auth::User;
 use super::job::Job;
 
@@ -17,8 +19,18 @@ pub(crate) struct Jobs {
 }
 
 impl Jobs {
-    pub(crate) fn count(&self) -> usize {
-        self.uuid_to_job.len()
+    pub(crate) async fn running_count(&self) -> usize {
+        let mut count = 0;
+
+        for (_, job) in self.uuid_to_job.iter() {
+            let mut job = job.write().await;
+
+            if let Status::Running { .. } = job.status().await {
+                count += 1;
+            }
+        }
+
+        count
     }
 
     pub(crate) fn insert(&mut self, user: User, job: Job) {

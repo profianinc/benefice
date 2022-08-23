@@ -6,6 +6,7 @@ use crate::ENARX_OCI_IMAGE_TAG;
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::process::ExitStatus;
 use std::process::Stdio;
 use std::str::FromStr;
 
@@ -14,6 +15,7 @@ use axum::response::{IntoResponse, Response};
 
 use anyhow::anyhow;
 use tempfile::NamedTempFile;
+use tokio::io;
 use tokio::io::AsyncReadExt;
 use tokio::process::{Child, Command};
 use tracing::{debug, error};
@@ -40,6 +42,12 @@ impl FromStr for WorkloadType {
 pub(crate) enum Standard {
     Output,
     Error,
+}
+
+#[allow(unused, variant_size_differences)]
+pub(crate) enum Status {
+    Running { pid: u32 },
+    Exited { code: io::Result<ExitStatus> },
 }
 
 #[derive(Debug)]
@@ -159,6 +167,15 @@ impl Job {
             oci_command,
             mapped_ports,
         })
+    }
+
+    pub(crate) async fn status(&mut self) -> Status {
+        match self.exec.id() {
+            None => Status::Exited {
+                code: self.exec.wait().await,
+            },
+            Some(pid) => Status::Running { pid },
+        }
     }
 
     pub(crate) async fn read(

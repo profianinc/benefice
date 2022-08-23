@@ -66,7 +66,6 @@ use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use uuid::Uuid;
 
 static HTTP: Lazy<Client> = Lazy::new(|| {
     const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
@@ -601,7 +600,6 @@ async fn root_post(
     })?;
 
     // Create the new job.
-    let uuid = Uuid::new_v4();
     {
         if JOBS.read().await.by_user(&user).is_some() {
             return Err(Redirect::to("/").into_response());
@@ -624,6 +622,7 @@ async fn root_post(
             oci_command,
             mapped_ports.clone(),
         )?;
+        info!("job started. job_id={}, user_id={user}", job.uuid);
         JOBS.write().await.insert(user, job);
     }
 
@@ -635,8 +634,6 @@ async fn root_post(
             debug!("timeout for: {}", uuid);
         }
     });
-
-    info!("job started. job_id={uuid}, user_id={user}");
 
     let json = json!({ "ports": mapped_ports });
     Ok(Json(json))

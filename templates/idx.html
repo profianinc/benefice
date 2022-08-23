@@ -60,12 +60,74 @@
         .tile {
             max-width: 100%;
         }
+
+        .mobile-nav {
+            display: none
+        }
+
+        .non-mobile-nav {
+            display: inherit
+        }
+
+        @media screen and (max-width: 780px) {
+            .mobile-nav {
+                display: inline
+            }
+
+            .non-mobile-nav {
+                display: none
+            }
+        }
     </style>
 </head>
 
 <body>
     <nav class="navbar is-light" role="navigation" aria-label="main navigation">
-        <div class="navbar-brand" style="width: 100%">
+        <!-- mobile only navigation -->
+        <div class="mobile-nav">
+            <div class="navbar-brand" style="width: 100%">
+                <a class="navbar-item" href="https://enarx.dev" target="_blank">
+                    <img src="https://try.enarx.dev/img/enarx.png" alt="Enarx">
+                </a>
+
+                <div class="navbar-item p-0 unselectable" style="font-size:0.7rem;">secured by</div>
+
+                <a class="navbar-item" href="https://profian.com" target="_blank">
+                    <img src="https://try.enarx.dev/img/profian.svg" alt="Profian" style="width: 100px">
+                </a>
+            </div>
+            <div class="navbar-end">
+                <div class="navbar-item">
+                    <div class="buttons">
+                        <a class="button is-info" href="/">
+                            Examples
+                        </a>
+                        <br />
+                        <a class="button is-info" href="/drawbridge">
+                            Drawbridge
+                        </a>
+                        <br />
+                        <a class="button is-info" href="/upload">
+                            Upload
+                        </a>
+                        <br />
+                        <div id="userNav">
+                            <a class="button is-success" id="auth" href="/logout">
+                                Log out
+                            </a>
+                        </div>
+                        <br />
+                        <div id="noUserNav" class="is-hidden">
+                            <a class="button is-success" id="auth" href="/login">
+                                Log in
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- non mobile navigation -->
+        <div class="navbar-brand non-mobile-nav" style="width: 100%">
             <a class="navbar-item" href="https://enarx.dev" target="_blank">
                 <img src="https://try.enarx.dev/img/enarx.png" alt="Enarx">
             </a>

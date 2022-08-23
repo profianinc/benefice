@@ -264,7 +264,6 @@ in
       clap = rustPackages."registry+https://github.com/rust-lang/crates.io-index".clap."3.2.14" { inherit profileName; };
       enarx_config = rustPackages."registry+https://github.com/rust-lang/crates.io-index".enarx-config."0.6.1" { inherit profileName; };
       humansize = rustPackages."registry+https://github.com/rust-lang/crates.io-index".humansize."1.1.1" { inherit profileName; };
-      lazy_static = rustPackages."registry+https://github.com/rust-lang/crates.io-index".lazy_static."1.4.0" { inherit profileName; };
       num_cpus = rustPackages."registry+https://github.com/rust-lang/crates.io-index".num_cpus."1.13.1" { inherit profileName; };
       once_cell = rustPackages."registry+https://github.com/rust-lang/crates.io-index".once_cell."1.13.0" { inherit profileName; };
       openidconnect = rustPackages."registry+https://github.com/rust-lang/crates.io-index".openidconnect."2.3.2" { inherit profileName; };

@@ -602,10 +602,12 @@ async fn root_post(
     // Create the new job.
     {
         if JOBS.read().await.by_user(&user).is_some() {
+            ports::free(&mapped_ports).await;
             return Err(Redirect::to("/").into_response());
         }
 
         if JOBS.read().await.count() >= jobs {
+            ports::free(&mapped_ports).await;
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Too many workloads are running right now, try again later",

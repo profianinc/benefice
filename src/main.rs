@@ -188,7 +188,7 @@ impl Args {
 
         let other = Other {
             addr: self.addr,
-            jobs: self.jobs,
+            jobs_max: self.jobs,
             port_range: match (self.port_min, self.port_max) {
                 (0, 0) => None,
                 (min, 0) => Some(min..u16::MAX),
@@ -249,7 +249,7 @@ impl Limits {
 #[derive(Clone, Debug)]
 struct Other {
     addr: SocketAddr,
-    jobs: usize,
+    jobs_max: usize,
     port_range: Option<Range<u16>>,
     listen_max: Option<u16>,
     oci_command: OsString,
@@ -321,7 +321,7 @@ async fn main() -> anyhow::Result<()> {
                         limits,
                         other.port_range,
                         other.listen_max,
-                        other.jobs,
+                        other.jobs_max,
                         other.oci_command,
                         other.oci_image_tag,
                     )
@@ -365,7 +365,7 @@ async fn root_post(
     limits: Limits,
     port_range: Option<Range<u16>>,
     listen_max: Option<u16>,
-    jobs: usize,
+    jobs_max: usize,
     oci_command: OsString,
     oci_image_tag: OsString,
 ) -> impl IntoResponse {
@@ -606,7 +606,7 @@ async fn root_post(
             return Err(Redirect::to("/").into_response());
         }
 
-        if JOBS.read().await.count() >= jobs {
+        if JOBS.read().await.count() >= jobs_max {
             ports::free(&mapped_ports).await;
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,

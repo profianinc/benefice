@@ -4,6 +4,7 @@
 use crate::ports;
 
 use std::collections::HashMap;
+use std::env;
 use std::ffi::OsString;
 use std::process::Stdio;
 use std::str::FromStr;
@@ -85,6 +86,9 @@ impl Job {
                 ["-p".to_string(), format!("{host_port}:{container_port}")]
             })
             .collect::<Vec<_>>();
+        let extra_args = env::var("ENARX_BACKEND")
+            .map(|var| ["-e".to_string(), format!("ENARX_BACKEND={}", var)])
+            .unwrap_or_default();
         let exec = match workload_type {
             WorkloadType::Drawbridge => {
                 let slug = slug
@@ -94,6 +98,7 @@ impl Job {
                     .args(&["run", "--rm", "--name"])
                     .arg(&uuid.to_string())
                     .args(mapped_ports_args)
+                    .args(extra_args)
                     .arg(oci_image_tag)
                     .arg("enarx")
                     .arg("deploy")
@@ -131,6 +136,7 @@ impl Job {
                     .arg("-v")
                     .arg(format!("{}:/app/main.wasm", wasm_path_str))
                     .args(mapped_ports_args)
+                    .args(extra_args)
                     .arg(oci_image_tag)
                     .arg("enarx")
                     .arg("run")

@@ -57,7 +57,6 @@ use axum::{Json, Router, Server};
 use anyhow::{bail, Context as _};
 use clap::Parser;
 use humansize::{file_size_opts as options, FileSize};
-use lazy_static::lazy_static;
 use once_cell::sync::Lazy;
 use reqwest::{Client, ClientBuilder};
 use serde_json::json;
@@ -80,12 +79,12 @@ static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
 const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
-lazy_static! {
-    static ref EXAMPLES: Vec<&'static str> = include_str!("../examples.txt")
+static EXAMPLES: Lazy<Vec<&'static str>> = Lazy::new(|| {
+    include_str!("../examples.txt")
         .lines()
         .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>();
-}
+        .collect::<Vec<_>>()
+});
 
 /// Demo workload executor.
 ///

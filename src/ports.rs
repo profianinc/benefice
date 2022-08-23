@@ -9,13 +9,12 @@ use std::{
 
 use anyhow::Context;
 use enarx_config::{Config, File, Protocol};
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use rand::prelude::*;
 use tokio::sync::RwLock;
 
-lazy_static! {
-    static ref PORTS_IN_USE: Arc<RwLock<HashSet<u16>>> = Arc::new(RwLock::new(HashSet::new()));
-}
+static PORTS_IN_USE: Lazy<Arc<RwLock<HashSet<u16>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(HashSet::new())));
 
 fn random_unused_port(ports_in_use: &HashSet<u16>, range: Range<u16>) -> Option<u16> {
     for _ in 0..1000 {

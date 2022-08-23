@@ -178,7 +178,6 @@ dependencies = [
  "clap",
  "enarx-config",
  "humansize",
- "lazy_static",
  "num_cpus",
  "once_cell",
  "openidconnect",

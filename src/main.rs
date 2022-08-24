@@ -38,11 +38,13 @@ use self::job::Job;
 use self::templates::{HtmlTemplate, IdxTemplate, Page};
 
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::env::temp_dir;
+use std::ffi::{OsStr, OsString};
 use std::fs::read;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Range;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{bail, Context as _};
@@ -171,6 +173,10 @@ struct Args {
     /// Session cookie time to live (in minutes).
     #[clap(long, default_value_t = 24 * 60)]
     session_ttl: u64,
+
+    /// Runtime directory, where uploaded workloads and configs will be temporarily stored.
+    #[clap(long, default_value_os_t = temp_dir())]
+    runtime_dir: PathBuf,
 }
 
 impl Args {
@@ -203,6 +209,7 @@ impl Args {
             ss_command: self.ss_command,
             oci_command: self.oci_command,
             oci_image: self.oci_image,
+            runtime_dir: self.runtime_dir,
         };
 
         (limits, oidc, other)
@@ -257,6 +264,7 @@ struct Other {
     ss_command: OsString,
     oci_command: OsString,
     oci_image: String,
+    runtime_dir: PathBuf,
 }
 
 async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
@@ -363,6 +371,7 @@ async fn main() -> anyhow::Result<()> {
                         other.ss_command,
                         other.oci_command,
                         other.oci_image,
+                        other.runtime_dir,
                     )
                 })
                 .delete(root_delete),
@@ -411,10 +420,11 @@ async fn parse_string_field(field: Field<'_>) -> Result<String, Response> {
 async fn parse_file_field(
     mut field: Field<'_>,
     max_size: usize,
+    runtime_dir: impl AsRef<Path>,
 ) -> Result<NamedTempFile, Response> {
     let mut len = 0;
-    let mut out =
-        NamedTempFile::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+    let mut out = NamedTempFile::new_in(runtime_dir)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
 
     while let Some(chunk) = field
         .chunk()
@@ -469,9 +479,10 @@ async fn root_post(
     port_range: Range<u16>,
     listen_max: Option<u16>,
     jobs_max: usize,
-    ss_command: OsString,
+    ss_command: impl AsRef<OsStr>,
     oci_command: OsString,
-    oci_image: String,
+    oci_image: impl AsRef<str>,
+    runtime_dir: impl AsRef<Path>,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -506,12 +517,16 @@ async fn root_post(
             Some("wasm") if wasm.is_none() => match field.content_type() {
                 None => return Err(StatusCode::BAD_REQUEST.into_response()),
                 Some("application/wasm") => {
-                    wasm = parse_file_field(field, max_wasm_size).await?.into()
+                    wasm = parse_file_field(field, max_wasm_size, &runtime_dir)
+                        .await?
+                        .into()
                 }
                 _ => return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
             },
             Some("toml") if conf.is_none() && field.content_type().is_none() => {
-                conf = parse_file_field(field, MAX_CONF_SIZE).await?.into()
+                conf = parse_file_field(field, MAX_CONF_SIZE, &runtime_dir)
+                    .await?
+                    .into()
             }
             _ => return Err(StatusCode::BAD_REQUEST.into_response()),
         }
@@ -614,9 +629,9 @@ async fn root_post(
     let job = Job::spawn(
         id.clone(),
         workload,
-        &ss_command,
+        ss_command,
         oci_command,
-        &oci_image,
+        oci_image.as_ref(),
         port_range,
         ports,
         // Ensure job is killed after a timeout.

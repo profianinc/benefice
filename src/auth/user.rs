@@ -26,8 +26,6 @@ use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::error;
 
-use crate::HTTP;
-
 use super::Config;
 
 const STAR_TIMEOUT: Duration = Duration::from_secs(5 * 60);
@@ -160,11 +158,7 @@ impl User {
             return *star;
         }
 
-        let result = HTTP
-            .get(&format!("https://api.github.com/user/{}/starred", self.uid))
-            .send();
-
-        match result.await {
+        match reqwest::get(&format!("https://api.github.com/user/{}/starred", self.uid)).await {
             Err(e) => {
                 error!("error fetching github star status: {}", e);
                 false

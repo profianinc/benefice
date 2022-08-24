@@ -67,11 +67,6 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-static HTTP: Lazy<Client> = Lazy::new(|| {
-    const USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-    ClientBuilder::new().user_agent(USER_AGENT).build().unwrap()
-});
-
 static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
 
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75

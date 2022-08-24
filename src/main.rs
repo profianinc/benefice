@@ -490,7 +490,6 @@ async fn root_post(
 
     let mut workload_type = None;
     let mut slug = None;
-    let mut ports = None;
     let mut wasm = None;
     let mut conf = None;
 
@@ -504,7 +503,6 @@ async fn root_post(
                 workload_type = parse_string_field(field).await?.into()
             }
             Some("slug") if slug.is_none() => slug = parse_string_field(field).await?.into(),
-            Some("ports") if ports.is_none() => ports = parse_string_field(field).await?.into(),
             Some("wasm") if wasm.is_none() => match field.content_type() {
                 None => return Err(StatusCode::BAD_REQUEST.into_response()),
                 Some("application/wasm") => {
@@ -523,12 +521,12 @@ async fn root_post(
         .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?
         .as_str()
     {
-        "drawbridge" => Workload::Drawbridge {
-            slug: slug.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
-        },
         "upload" => Workload::Upload {
             wasm: wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
             conf: conf.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
+        },
+        "drawbridge" => Workload::Drawbridge {
+            slug: slug.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
         },
         typ => {
             error!("Unknown workload type `{typ}`");
@@ -536,8 +534,8 @@ async fn root_post(
         }
     };
 
-    let ports: Vec<u16> = match (ports, &workload) {
-        (None, Workload::Upload { conf, .. }) => read_to_string(conf)
+    let ports: Vec<u16> = match &workload {
+        Workload::Upload { conf, .. } => read_to_string(conf)
             .await
             .map_err(|e| {
                 debug!("failed to read uploaded Enarx.toml: {e}");
@@ -549,44 +547,35 @@ async fn root_post(
                 warn!("failed to parse uploaded Enarx.toml: {e}");
                 StatusCode::BAD_REQUEST.into_response()
             })?,
-        (None, Workload::Drawbridge { slug }) => {
+        Workload::Drawbridge { slug } => {
             let (repo, tag) = slug
                 .split_once(':')
                 .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-            reqwest::get(format!(
+            match reqwest::get(format!(
                 "https://store.profian.com/api/v0.2.0/{repo}/_tag/{tag}/tree/Enarx.toml"
             ))
             .await
-            .map_err(|e| {
-                debug!("failed to request Enarx.toml for `{slug}`: {e}",);
-                StatusCode::BAD_REQUEST.into_response()
-            })?
-            .text()
-            .await
-            .map_err(|e| {
-                warn!("failed to read Enarx.toml for `{slug}`: {e}");
-                StatusCode::BAD_REQUEST.into_response()
-            })
-            .map(|conf| toml::from_str(&conf))?
-            .map(listen_ports)
-            .map_err(|e| {
-                warn!("failed to parse Enarx.toml for `{slug}`: {e}");
-                StatusCode::BAD_REQUEST.into_response()
-            })?
+            {
+                Ok(resp) => resp
+                    .text()
+                    .await
+                    .map_err(|e| {
+                        warn!("failed to read Enarx.toml for `{slug}`: {e}");
+                        StatusCode::BAD_REQUEST.into_response()
+                    })
+                    .map(|conf| toml::from_str(&conf))?
+                    .map(listen_ports)
+                    .map_err(|e| {
+                        warn!("failed to parse Enarx.toml for `{slug}`: {e}");
+                        StatusCode::BAD_REQUEST.into_response()
+                    })?,
+                Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => vec![],
+                Err(e) => {
+                    debug!("failed to request Enarx.toml for `{slug}`: {e}");
+                    return Err(StatusCode::BAD_REQUEST.into_response());
+                }
+            }
         }
-        (Some(ports), Workload::Drawbridge { .. }) => ports
-            .split([' ', ','])
-            .filter(|port| !port.is_empty())
-            .map(str::parse)
-            .collect::<Result<_, _>>()
-            .map_err(|e| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    format!("Failed to parse port: {e}"),
-                )
-                    .into_response()
-            })?,
-        _ => return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
     };
 
     if let Some(listen_max) = listen_max {

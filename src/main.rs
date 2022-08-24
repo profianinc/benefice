@@ -30,17 +30,14 @@
 
 mod auth;
 mod job;
-mod jobs;
-mod ports;
 mod secret;
 mod templates;
 
 use self::auth::{Key, User};
-use self::job::{Job, Standard};
-use self::jobs::Jobs;
+use self::job::Job;
+use self::templates::{HtmlTemplate, IdxTemplate, Page};
 
-use crate::templates::{HtmlTemplate, IdxTemplate, Page};
-
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::read;
 use std::io::Write;
@@ -48,31 +45,40 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Range;
 use std::time::Duration;
 
+use anyhow::{bail, Context as _};
+use axum::extract::multipart::Field;
 use axum::extract::Multipart;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router, Server};
-
-use anyhow::{bail, Context as _};
 use clap::Parser;
+use enarx_config::{Config, File, Protocol};
+use futures_util::{stream, StreamExt};
 use humansize::{file_size_opts as options, FileSize};
 use once_cell::sync::Lazy;
-use reqwest::{Client, ClientBuilder};
 use serde_json::json;
+use tempfile::NamedTempFile;
 use tokio::fs::read_to_string;
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-
-static JOBS: Lazy<RwLock<Jobs>> = Lazy::new(Default::default);
+use tracing::{debug, error, info, warn};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use uuid::Uuid;
 
 // TODO: raise this when this is fixed: https://github.com/profianinc/benefice/issues/75
 const READ_TIMEOUT: Duration = Duration::from_millis(500);
-const TOML_MAX: usize = 256 * 1024; // 256 KiB
 
+/// Maximum size of Enarx.toml in bytes
+const MAX_CONF_SIZE: usize = 256 * 1024; // 256 KiB
+
+/// Active jobs
+static JOBS: Lazy<RwLock<HashMap<User, RwLock<Job>>>> = Lazy::new(Default::default);
+
+/// Predefined examples
 static EXAMPLES: Lazy<Vec<&'static str>> = Lazy::new(|| {
     include_str!("../examples.txt")
         .lines()
@@ -121,26 +127,30 @@ struct Args {
     timeout_starred: u64,
 
     /// The lowest listen port to be allocated via the selected OCI container engine.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t = 1024)]
     port_min: u16,
 
     /// The highest listen port to be allocated via the selected OCI container engine.
-    #[clap(long, default_value_t = 0)]
+    #[clap(long, default_value_t = 65535)]
     port_max: u16,
 
     /// The maximum number of listen ports a workload is allowed to have (0 to disable).
     #[clap(long, default_value_t = 0)]
     listen_max: u16,
 
+    /// `ss` command to execute, for example `ss`.
+    #[clap(long, default_value = "ss")]
+    ss_command: OsString,
+
     /// OCI container engine command to execute, for example, `docker` or `podman`.
     /// This may also be an absolute path.
     #[clap(long, default_value = "docker")]
     oci_command: OsString,
 
-    /// OCI image tag to use.
+    /// OCI image to use.
     /// Defaults to the last tested image from https://hub.docker.com/r/enarx/enarx
     #[clap(long, default_value = "enarx/enarx:0.6.3")]
-    oci_image: OsString,
+    oci_image: String,
 
     /// OpenID Connect issuer URL.
     #[clap(long, default_value = "https://auth.profian.com/")]
@@ -184,18 +194,15 @@ impl Args {
         let other = Other {
             addr: self.addr,
             jobs_max: self.jobs,
-            port_range: match (self.port_min, self.port_max) {
-                (0, 0) => None,
-                (min, 0) => Some(min..u16::MAX),
-                (min, max) => Some(min..max),
-            },
+            port_range: self.port_min..self.port_max,
             listen_max: if self.listen_max == 0 {
                 None
             } else {
                 Some(self.listen_max)
             },
+            ss_command: self.ss_command,
             oci_command: self.oci_command,
-            oci_image_tag: self.oci_image,
+            oci_image: self.oci_image,
         };
 
         (limits, oidc, other)
@@ -245,10 +252,46 @@ impl Limits {
 struct Other {
     addr: SocketAddr,
     jobs_max: usize,
-    port_range: Option<Range<u16>>,
+    port_range: Range<u16>,
     listen_max: Option<u16>,
+    ss_command: OsString,
     oci_command: OsString,
-    oci_image_tag: OsString,
+    oci_image: String,
+}
+
+async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
+    let mut buf = [0; 4096];
+    match timeout(READ_TIMEOUT, rdr.read(&mut buf)).await {
+        Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(Ok(size)) => Ok(buf[..size].to_vec()),
+        Err(..) => Ok(Vec::new()),
+    }
+}
+
+async fn read_stdout(user: User) -> Result<Vec<u8>, StatusCode> {
+    if let Some(job) = JOBS.read().await.get(&user) {
+        if let Some(stdout) = job.write().await.exec.stdout.as_mut() {
+            read_chunk(stdout).await
+        } else {
+            error!("job is missing STDOUT. user_id=`{user}`");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+async fn read_stderr(user: User) -> Result<Vec<u8>, StatusCode> {
+    if let Some(job) = JOBS.read().await.get(&user) {
+        if let Some(stdout) = job.write().await.exec.stderr.as_mut() {
+            read_chunk(stdout).await
+        } else {
+            error!("job is missing STDERR. user_id=`{user}`");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
 }
 
 #[tokio::main]
@@ -296,8 +339,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let app = Router::new()
-        .route("/out", post(move |user| reader(user, Standard::Output)))
-        .route("/err", post(move |user| reader(user, Standard::Error)))
+        .route("/out", post(read_stdout))
+        .route("/err", post(read_stderr))
         .route(
             "/drawbridge",
             get(move |user| root_get(user, limits, Page::Drawbridge)),
@@ -317,8 +360,9 @@ async fn main() -> anyhow::Result<()> {
                         other.port_range,
                         other.listen_max,
                         other.jobs_max,
+                        other.ss_command,
                         other.oci_command,
-                        other.oci_image_tag,
+                        other.oci_image,
                     )
                 })
                 .delete(root_delete),
@@ -352,17 +396,82 @@ async fn root_get(user: Option<User>, limits: Limits, page: Page) -> impl IntoRe
     HtmlTemplate(tmpl).into_response()
 }
 
+#[inline]
+async fn parse_string_field(field: Field<'_>) -> Result<String, Response> {
+    if field.content_type().is_some() {
+        return Err(StatusCode::BAD_REQUEST.into_response());
+    }
+    field
+        .text()
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())
+}
+
+#[inline]
+async fn parse_file_field(
+    mut field: Field<'_>,
+    max_size: usize,
+) -> Result<NamedTempFile, Response> {
+    let mut len = 0;
+    let mut out =
+        NamedTempFile::new().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+
+    while let Some(chunk) = field
+        .chunk()
+        .await
+        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
+    {
+        len += chunk.len();
+        if len > max_size {
+            return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
+        }
+
+        out.write_all(&chunk)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+    }
+    Ok(out)
+}
+
+#[inline]
+fn listen_ports<T: FromIterator<u16>>(conf: Config) -> T {
+    conf.files
+        .into_iter()
+        .filter_map(|file| match file {
+            File::Null { .. }
+            | File::Stdin { .. }
+            | File::Stdout { .. }
+            | File::Stderr { .. }
+            | File::Connect { .. } => None,
+            File::Listen { port, prot, .. } => match prot {
+                Protocol::Tls | Protocol::Tcp => Some(port),
+            },
+        })
+        .collect()
+}
+
+#[derive(Debug)]
+pub enum Workload {
+    Drawbridge {
+        slug: String,
+    },
+    Upload {
+        wasm: NamedTempFile,
+        conf: NamedTempFile,
+    },
+}
+
 // TODO: create tests for endpoints: #38
 #[allow(clippy::too_many_arguments)]
 async fn root_post(
     user: Option<User>,
     mut multipart: Multipart,
     limits: Limits,
-    port_range: Option<Range<u16>>,
+    port_range: Range<u16>,
     listen_max: Option<u16>,
     jobs_max: usize,
+    ss_command: OsString,
     oci_command: OsString,
-    oci_image_tag: OsString,
+    oci_image: String,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -377,296 +486,182 @@ async fn root_post(
 
     let star = user.is_starred("enarx/enarx").await;
     let ttl = limits.time_to_live(star);
-    let size = limits.size(star);
-
-    if let Some(uuid) = JOBS.write().await.remove(&user).await {
-        debug!("replacing an old job with a new one: {}", uuid);
-    }
+    let max_wasm_size = limits.size(star);
 
     let mut workload_type = None;
     let mut slug = None;
     let mut ports = None;
     let mut wasm = None;
-    let mut toml = None;
+    let mut conf = None;
 
-    while let Some(mut field) = multipart
+    while let Some(field) = multipart
         .next_field()
         .await
         .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
     {
         match field.name() {
-            Some("workloadType") => {
-                if field.content_type().is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                if workload_type.is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                workload_type = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?,
-                );
+            Some("workloadType") if workload_type.is_none() => {
+                workload_type = parse_string_field(field).await?.into()
             }
-
-            Some("slug") => {
-                if field.content_type().is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
+            Some("slug") if slug.is_none() => slug = parse_string_field(field).await?.into(),
+            Some("ports") if ports.is_none() => ports = parse_string_field(field).await?.into(),
+            Some("wasm") if wasm.is_none() => match field.content_type() {
+                None => return Err(StatusCode::BAD_REQUEST.into_response()),
+                Some("application/wasm") => {
+                    wasm = parse_file_field(field, max_wasm_size).await?.into()
                 }
-
-                if slug.is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                slug = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?,
-                );
+                _ => return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response()),
+            },
+            Some("toml") if conf.is_none() && field.content_type().is_none() => {
+                conf = parse_file_field(field, MAX_CONF_SIZE).await?.into()
             }
-
-            Some("ports") => {
-                if field.content_type().is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                if ports.is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                ports = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|_| StatusCode::BAD_REQUEST.into_response())?,
-                );
-            }
-
-            Some("wasm") => {
-                if Some("application/wasm") != field.content_type() {
-                    return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE.into_response());
-                }
-
-                if wasm.is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                let mut len = 0;
-                let mut out = tempfile::NamedTempFile::new()
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-
-                while let Some(chunk) = field
-                    .chunk()
-                    .await
-                    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
-                {
-                    len += chunk.len();
-                    if len > size {
-                        return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
-                    }
-
-                    out.write_all(&chunk)
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-                }
-
-                wasm = Some(out);
-            }
-
-            Some("toml") => {
-                if field.content_type().is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                if toml.is_some() {
-                    return Err(StatusCode::BAD_REQUEST.into_response());
-                }
-
-                let mut len = 0;
-                let mut out = tempfile::NamedTempFile::new()
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-
-                while let Some(chunk) = field
-                    .chunk()
-                    .await
-                    .map_err(|_| StatusCode::BAD_REQUEST.into_response())?
-                {
-                    len += chunk.len();
-                    if len > TOML_MAX {
-                        return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
-                    }
-
-                    out.write_all(&chunk)
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
-                }
-
-                toml = Some(out);
-            }
-
-            _ => continue,
+            _ => return Err(StatusCode::BAD_REQUEST.into_response()),
         }
     }
 
-    let workload_type = workload_type.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+    let workload = match workload_type
+        .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?
+        .as_str()
+    {
+        "drawbridge" => Workload::Drawbridge {
+            slug: slug.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
+        },
+        "upload" => Workload::Upload {
+            wasm: wasm.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
+            conf: conf.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
+        },
+        typ => {
+            error!("Unknown workload type `{typ}`");
+            return Err(StatusCode::BAD_REQUEST.into_response());
+        }
+    };
 
-    fn get_toml_ports(toml: &str) -> Result<Vec<u16>, Response> {
-        ports::get_listen_ports(toml).map_err(|e| {
-            debug!("failed to get ports from enarx config: {e}");
-            StatusCode::BAD_REQUEST.into_response()
-        })
-    }
-
-    let ports = match (&ports, &toml) {
-        (_, Some(toml)) => {
-            let toml = read_to_string(toml).await.map_err(|e| {
-                debug!("failed to read enarx config file: {e}");
+    let ports: Vec<u16> = match (ports, &workload) {
+        (None, Workload::Upload { conf, .. }) => read_to_string(conf)
+            .await
+            .map_err(|e| {
+                debug!("failed to read uploaded Enarx.toml: {e}");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            })?;
-            get_toml_ports(&toml).map_err(|e| e.into_response())?
-        }
-        (None, None) => {
-            let slug = slug
-                .as_ref()
-                .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
+            })
+            .map(|conf| toml::from_str(&conf))?
+            .map(listen_ports)
+            .map_err(|e| {
+                warn!("failed to parse uploaded Enarx.toml: {e}");
+                StatusCode::BAD_REQUEST.into_response()
+            })?,
+        (None, Workload::Drawbridge { slug }) => {
             let (repo, tag) = slug
                 .split_once(':')
                 .ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?;
-            let toml = get_enarx_config_from_drawbridge(repo, tag)
-                .await
-                .map_err(|e| {
-                    debug!("failed to get toml from drawbridge with tag: {}: {e}", slug);
-                    StatusCode::BAD_REQUEST.into_response()
-                })?
-                .text()
-                .await
-                .map_err(|e| {
-                    debug!(
-                        "failed to get toml body from drawbridge response: {}: {e}",
-                        slug
-                    );
-                    StatusCode::BAD_REQUEST.into_response()
-                })?;
-            get_toml_ports(&toml).map_err(|e| e.into_response())?
+            reqwest::get(format!(
+                "https://store.profian.com/api/v0.2.0/{repo}/_tag/{tag}/tree/Enarx.toml"
+            ))
+            .await
+            .map_err(|e| {
+                debug!("failed to request Enarx.toml for `{slug}`: {e}",);
+                StatusCode::BAD_REQUEST.into_response()
+            })?
+            .text()
+            .await
+            .map_err(|e| {
+                warn!("failed to read Enarx.toml for `{slug}`: {e}");
+                StatusCode::BAD_REQUEST.into_response()
+            })
+            .map(|conf| toml::from_str(&conf))?
+            .map(listen_ports)
+            .map_err(|e| {
+                warn!("failed to parse Enarx.toml for `{slug}`: {e}");
+                StatusCode::BAD_REQUEST.into_response()
+            })?
         }
-        (Some(ports), None) => {
-            let mut parsed_ports = vec![];
-
-            for port in ports
-                .replace(',', " ")
-                .split(' ')
-                .filter(|port| !port.is_empty())
-                .map(|port| port.to_string())
-            {
-                let port = port.parse::<u16>().map_err(|e| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        format!("Invalid port specified: {port}: {e}"),
-                    )
-                        .into_response()
-                })?;
-                parsed_ports.push(port);
-            }
-
-            parsed_ports
-        }
+        (Some(ports), Workload::Drawbridge { .. }) => ports
+            .split([' ', ','])
+            .filter(|port| !port.is_empty())
+            .map(str::parse)
+            .collect::<Result<_, _>>()
+            .map_err(|e| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to parse port: {e}"),
+                )
+                    .into_response()
+            })?,
+        _ => return Err(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
     };
 
     if let Some(listen_max) = listen_max {
         // Check if the user is trying to listen on too many ports.
-        if ports.len() > listen_max as usize {
+        if ports.len() > listen_max as _ {
             return Err((
                 StatusCode::BAD_REQUEST,
-                format!("Your workload is using too many listeners (more than {listen_max})"),
+                format!(
+                    "Your workload listens on {} ports, which exceeds the maximum of {listen_max}",
+                    ports.len(),
+                ),
             )
                 .into_response());
         }
     }
 
-    // Check if a port is already in use by another running workload
-    let mapped_ports = ports::try_reserve(ports, &port_range).await.map_err(|_| {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "Failed to find free ports for your workload, try again later",
-        )
-            .into_response()
-    })?;
+    let mut jobs = JOBS.write().await;
 
-    // Create the new job.
+    if jobs.len() >= jobs_max
+        && stream::iter(jobs.values())
+            .filter(|job| async { matches!(job.write().await.exec.try_wait(), Ok(None)) })
+            .count()
+            .await
+            >= jobs_max
     {
-        if JOBS.read().await.by_user(&user).is_some() {
-            ports::free(&mapped_ports).await;
-            return Err(Redirect::to("/").into_response());
-        }
-
-        if JOBS.read().await.count() >= jobs_max {
-            ports::free(&mapped_ports).await;
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                "Too many workloads are running right now, try again later",
-            )
-                .into_response());
-        }
-
-        let job = Job::new(
-            oci_image_tag,
-            workload_type,
-            slug,
-            wasm,
-            toml,
-            oci_command,
-            mapped_ports.clone(),
-        )?;
-        info!("job started. job_id={}, user_id={user}", job.uuid);
-        JOBS.write().await.insert(user, job);
+        // TODO: Queue the workload for execution in FIFO fashion
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Too many workloads are running right now, try again later",
+        )
+            .into_response());
     }
 
-    // Set the job timeout.
-    _ = tokio::spawn(async move {
-        sleep(ttl).await;
+    // Spawn a new job.
+    let id = Uuid::new_v4().to_string();
+    let job = Job::spawn(
+        id.clone(),
+        workload,
+        &ss_command,
+        oci_command,
+        &oci_image,
+        port_range,
+        ports,
+        // Ensure job is killed after a timeout.
+        async move {
+            sleep(ttl).await;
 
-        if let Some(uuid) = JOBS.write().await.remove(&user).await {
-            debug!("timeout for: {}", uuid);
-        }
-    });
+            let mut jobs = JOBS.write().await;
+            match jobs.get(&user) {
+                Some(job) if job.read().await.id == id => {
+                    debug!("killing job after timeout. job_id=`{id}`");
+                    jobs.remove(&user).unwrap().into_inner().kill().await;
+                }
+                _ => {}
+            }
+        },
+    )
+    .await?;
+    let resp = Json(json!({ "ports": job.mapped_ports }));
+    info!("job started. job_id=`{}`, user_id=`{user}`", job.id);
 
-    let json = json!({ "ports": mapped_ports });
-    Ok(Json(json))
-}
-
-async fn get_enarx_config_from_drawbridge(
-    repo: &str,
-    tag: &str,
-) -> Result<reqwest::Response, reqwest::Error> {
-    HTTP.get(&format!(
-        "https://store.profian.com/api/v0.2.0/{repo}/_tag/{tag}/tree/Enarx.toml"
-    ))
-    .send()
-    .await
+    if let Some(old) = jobs.insert(user, RwLock::new(job)) {
+        let old = old.into_inner();
+        debug!("killing the old job. user_id=`{user}` job_id=`{}`", old.id);
+        old.kill().await;
+    }
+    Ok(resp)
 }
 
 async fn root_delete(user: User) -> StatusCode {
-    if let Some(uuid) = JOBS.write().await.remove(&user).await {
-        debug!("killing: {}", uuid);
+    if let Some(job) = JOBS.write().await.remove(&user) {
+        let job = job.into_inner();
+        debug!("explicitly killing job. user_id=`{user}` job_id={}", job.id);
+        job.kill().await;
     }
 
     StatusCode::OK
-}
-
-async fn reader(user: User, kind: Standard) -> Result<Vec<u8>, StatusCode> {
-    if let Some(job) = JOBS.read().await.by_user(&user).cloned() {
-        let mut buf = [0; 4096];
-        let mut lock = job.write().await;
-        let future = lock.read(kind, &mut buf);
-
-        return match timeout(READ_TIMEOUT, future).await {
-            Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-            Ok(Ok(size)) => Ok(buf[..size].to_vec()),
-            Err(..) => Ok(Vec::new()),
-        };
-    }
-
-    Err(StatusCode::NOT_FOUND)
 }

@@ -909,10 +909,10 @@
 
                 for (var i = 0; i < mappedPorts.length; i++) {
                     var map = mappedPorts[i];
-                    var containerPort = map[0];
-                    var hostPort = map[1];
+                    var hostPort = map[0];
+                    var containerPort = map[1];
                     result +=
-                        '<li>Port ' + containerPort + ' -> ' + hostPort +
+                        '<li>Port ' + hostPort + ' -> ' + containerPort +
                         ' (<a href="https://' + window.location.hostname + ':' + hostPort + '/" target="_blank">link</a>)</li>';
                 }
 

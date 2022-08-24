@@ -78,11 +78,19 @@
                 display: none
             }
         }
+
+        nav[data-authenticated="true"] .login {
+            display: none !important
+        }
+
+        nav[data-authenticated="false"] .logout {
+            display: none !important
+        }
     </style>
 </head>
 
 <body>
-    <nav class="navbar is-light" role="navigation" aria-label="main navigation">
+    <nav class="navbar is-light" role="navigation" aria-label="main navigation" data-authenticated="true">
         <!-- mobile only navigation -->
         <div class="mobile-nav">
             <div class="navbar-brand" style="width: 100%">
@@ -102,26 +110,18 @@
                         <a class="button is-info" href="/">
                             Examples
                         </a>
-                        <br />
                         <a class="button is-info" href="/drawbridge">
                             Drawbridge
                         </a>
-                        <br />
                         <a class="button is-info" href="/upload">
                             Upload
                         </a>
-                        <br />
-                        <div id="userNav">
-                            <a class="button is-success" id="auth" href="/logout">
-                                Log out
-                            </a>
-                        </div>
-                        <br />
-                        <div id="noUserNav" class="is-hidden">
-                            <a class="button is-success" id="auth" href="/login">
-                                Log in
-                            </a>
-                        </div>
+                        <a class="logout button is-success" href="/logout">
+                            Log out
+                        </a>
+                        <a class="login button is-success" href="/login">
+                            Log in
+                        </a>
                     </div>
                 </div>
             </div>
@@ -149,16 +149,12 @@
                         <a class="button is-info" href="/upload">
                             Upload
                         </a>
-                        <div id="userNav">
-                            <a class="button is-success" id="auth" href="/logout">
-                                Log out
-                            </a>
-                        </div>
-                        <div id="noUserNav" class="is-hidden">
-                            <a class="button is-success" id="auth" href="/login">
-                                Log in
-                            </a>
-                        </div>
+                        <a class="logout button is-success" href="/logout">
+                            Log out
+                        </a>
+                        <a class="login button is-success" href="/login">
+                            Log in
+                        </a>
                     </div>
                 </div>
             </div>
@@ -930,17 +926,14 @@
 
         function setAuthenticated(isAuthenticated) {
             authenticated = isAuthenticated;
-            var userNav = window.document.getElementById('userNav');
-            var noUserNav = window.document.getElementById('noUserNav');
+            var nav = window.document.getElementsByTagName('nav')[0];
 
             if (isAuthenticated) {
                 deployButton.removeAttribute('disabled');
-                noUserNav.setAttribute('class', 'is-hidden');
-                userNav.setAttribute('class', '');
+                nav.setAttribute('data-authenticated', 'true');
             } else {
                 deployButton.setAttribute('disabled', '');
-                noUserNav.setAttribute('class', '');
-                userNav.setAttribute('class', 'is-hidden');
+                nav.setAttribute('data-authenticated', 'false');
             }
 
             if (enarxTomlEditor) {

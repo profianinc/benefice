@@ -177,6 +177,10 @@ struct Args {
     /// Runtime directory, where uploaded workloads and configs will be temporarily stored.
     #[clap(long, default_value_os_t = temp_dir())]
     runtime_dir: PathBuf,
+
+    /// Devices to expose to the container.
+    #[clap(long)]
+    devices: Vec<PathBuf>,
 }
 
 impl Args {
@@ -210,6 +214,7 @@ impl Args {
             oci_command: self.oci_command,
             oci_image: self.oci_image,
             runtime_dir: self.runtime_dir,
+            devices: self.devices,
         };
 
         (limits, oidc, other)
@@ -265,6 +270,7 @@ struct Other {
     oci_command: OsString,
     oci_image: String,
     runtime_dir: PathBuf,
+    devices: Vec<PathBuf>,
 }
 
 async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
@@ -372,6 +378,7 @@ async fn main() -> anyhow::Result<()> {
                         other.oci_command,
                         other.oci_image,
                         other.runtime_dir,
+                        other.devices,
                     )
                 })
                 .delete(root_delete),
@@ -483,6 +490,7 @@ async fn root_post(
     oci_command: OsString,
     oci_image: impl AsRef<str>,
     runtime_dir: impl AsRef<Path>,
+    devices: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -634,6 +642,7 @@ async fn root_post(
         oci_image.as_ref(),
         port_range,
         ports,
+        devices,
         // Ensure job is killed after a timeout.
         async move {
             sleep(ttl).await;

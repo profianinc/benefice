@@ -67,25 +67,33 @@ impl Job {
         oci_image: &str,
         port_range: Range<u16>,
         ports: impl IntoIterator<Item = u16>,
+        devices: impl IntoIterator<Item = impl AsRef<OsStr>>,
         destructor: impl Future<Output = ()> + Send + 'static,
     ) -> Result<Self, Response> {
         debug!("spawning a job. id={id} workload={:?}", workload);
         let mut cmd = Command::new(&oci_command);
-        let mut cmd = cmd
+        let cmd = cmd
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .args(["run", "--rm", "--name", id.as_str()]);
 
-        if let Some(backend) = env::var_os("ENARX_BACKEND") {
-            let mut var = OsString::from("ENARX_BACKEND=");
-            var.push(backend);
-            cmd = cmd.arg("-e").arg(var);
-        }
+        let cmd = devices
+            .into_iter()
+            .fold(cmd, |cmd, dev| cmd.arg("--device").arg(dev));
+
+        let cmd = env::var_os("ENARX_BACKEND")
+            .into_iter()
+            .fold(cmd, |cmd, backend| {
+                let mut var = OsString::from("ENARX_BACKEND=");
+                var.push(backend);
+                cmd.arg("-e").arg(var)
+            });
 
         let ports: Vec<_> = ports.into_iter().collect();
         let port_count = ports.len();
+
         let mapped_ports = if port_count > 0 {
             let used: HashSet<_> = used_ports(ss_command).await.map_err(|e| {
                 error!("failed to lookup used ports: {e}");
@@ -106,13 +114,13 @@ impl Job {
                 )
                     .into_response());
             }
-            cmd = mapped.iter().fold(cmd, |cmd, (host, cont)| {
-                cmd.arg("-p").arg(format!("{host}:{cont}"))
-            });
             mapped
         } else {
             Default::default()
         };
+        let cmd = mapped_ports.iter().fold(cmd, |cmd, (host, cont)| {
+            cmd.arg("-p").arg(format!("{host}:{cont}"))
+        });
 
         let cmd = match &workload {
             Workload::Drawbridge { slug } => {

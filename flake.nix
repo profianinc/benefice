@@ -95,6 +95,10 @@
         packages.default = nativeBin;
 
         devShells.default = pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
+
           buildInputs = [
             pkgs.openssl
 

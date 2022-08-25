@@ -20,8 +20,6 @@ use tracing::{debug, error};
 
 #[derive(Debug)]
 pub(crate) struct Job {
-    /// OCI container engine command
-    oci_command: OsString,
     destructor: AbortHandle,
     workload: Workload,
 
@@ -144,7 +142,6 @@ impl Job {
         Ok(Self {
             id,
             exec,
-            oci_command,
             mapped_ports,
             workload,
             destructor: destructor_tx,
@@ -153,19 +150,9 @@ impl Job {
 
     pub(crate) async fn kill(mut self) {
         self.destructor.abort();
-        if let Ok(mut child) = Command::new(&self.oci_command)
-            .arg("kill")
-            .arg(&self.id)
-            .spawn()
-            .map_err(|e| {
-                error!("failed to spawn kill process: {e} job_id={}", self.id);
-            })
-        {
-            if let Err(e) = child.wait().await {
-                error!("failed to kill job: {e} job_id={}", self.id);
-            }
+        if let Err(e) = self.exec.kill().await {
+            error!("failed to kill job: {e} job_id={}", self.id);
         }
-        let _ = self.exec.kill().await;
         if let Workload::Upload { wasm, conf } = self.workload {
             debug!("closing `main.wasm`");
             if let Err(e) = wasm.close() {

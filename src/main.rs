@@ -660,12 +660,10 @@ async fn root_post(
     Ok(resp)
 }
 
-async fn root_delete(user: User) -> StatusCode {
+async fn root_delete(user: User) {
     if let Some(job) = JOBS.write().await.remove(&user) {
         let job = job.into_inner();
         debug!("explicitly killing job. user_id=`{user}` job_id={}", job.id);
         job.kill().await;
     }
-
-    StatusCode::OK
 }

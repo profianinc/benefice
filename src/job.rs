@@ -8,6 +8,7 @@ use std::env;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::ops::Range;
+use std::path::Path;
 use std::process::Stdio;
 
 use anyhow::{anyhow, Context};
@@ -63,11 +64,11 @@ impl Job {
         id: String,
         workload: Workload,
         ss_command: impl AsRef<OsStr>,
-        oci_command: OsString,
-        oci_image: &str,
+        oci_command: impl AsRef<OsStr>,
+        oci_image: impl AsRef<str>,
         port_range: Range<u16>,
         ports: impl IntoIterator<Item = u16>,
-        devices: impl IntoIterator<Item = impl AsRef<OsStr>>,
+        devices: impl IntoIterator<Item = impl AsRef<Path>>,
         destructor: impl Future<Output = ()> + Send + 'static,
     ) -> Result<Self, Response> {
         debug!("spawning a job. id={id} workload={:?}", workload);
@@ -81,7 +82,7 @@ impl Job {
 
         let cmd = devices
             .into_iter()
-            .fold(cmd, |cmd, dev| cmd.arg("--device").arg(dev));
+            .fold(cmd, |cmd, dev| cmd.arg("--device").arg(dev.as_ref()));
 
         let cmd = env::var_os("ENARX_BACKEND")
             .into_iter()
@@ -124,14 +125,14 @@ impl Job {
 
         let cmd = match &workload {
             Workload::Drawbridge { slug } => {
-                cmd.args([oci_image, "enarx", "deploy", slug.as_str()])
+                cmd.args([oci_image.as_ref(), "enarx", "deploy", slug.as_str()])
             }
             Workload::Upload { wasm, conf } => cmd.args([
                 "-v",
-                format!("{}:/app/Enarx.toml", conf.path().to_string_lossy()).as_str(),
+                &format!("{}:/app/Enarx.toml", conf.path().display()),
                 "-v",
-                format!("{}:/app/main.wasm", wasm.path().to_string_lossy()).as_str(),
-                oci_image,
+                &format!("{}:/app/main.wasm", wasm.path().display()),
+                oci_image.as_ref(),
                 "enarx",
                 "run",
                 "--wasmcfgfile",

@@ -487,10 +487,10 @@ async fn root_post(
     listen_max: Option<u16>,
     jobs_max: usize,
     ss_command: impl AsRef<OsStr>,
-    oci_command: OsString,
+    oci_command: impl AsRef<OsStr>,
     oci_image: impl AsRef<str>,
     runtime_dir: impl AsRef<Path>,
-    devices: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    devices: impl IntoIterator<Item = impl AsRef<Path>>,
 ) -> impl IntoResponse {
     let user = match user {
         None => {

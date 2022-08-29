@@ -181,6 +181,10 @@ struct Args {
     /// Devices to expose to the container.
     #[clap(long)]
     devices: Vec<PathBuf>,
+
+    /// Paths to expose to the container.
+    #[clap(long)]
+    paths: Vec<PathBuf>,
 }
 
 impl Args {
@@ -215,6 +219,7 @@ impl Args {
             oci_image: self.oci_image,
             runtime_dir: self.runtime_dir,
             devices: self.devices,
+            paths: self.paths,
         };
 
         (limits, oidc, other)
@@ -271,6 +276,7 @@ struct Other {
     oci_image: String,
     runtime_dir: PathBuf,
     devices: Vec<PathBuf>,
+    paths: Vec<PathBuf>,
 }
 
 async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
@@ -379,6 +385,7 @@ async fn main() -> anyhow::Result<()> {
                         other.oci_image,
                         other.runtime_dir,
                         other.devices,
+                        other.paths,
                     )
                 })
                 .delete(root_delete),
@@ -491,6 +498,7 @@ async fn root_post(
     oci_image: impl AsRef<str>,
     runtime_dir: impl AsRef<Path>,
     devices: impl IntoIterator<Item = impl AsRef<Path>>,
+    paths: impl IntoIterator<Item = impl AsRef<Path>>,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -643,6 +651,7 @@ async fn root_post(
         port_range,
         ports,
         devices,
+        paths,
         // Ensure job is killed after a timeout.
         async move {
             sleep(ttl).await;

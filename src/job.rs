@@ -69,6 +69,7 @@ impl Job {
         port_range: Range<u16>,
         ports: impl IntoIterator<Item = u16>,
         devices: impl IntoIterator<Item = impl AsRef<Path>>,
+        paths: impl IntoIterator<Item = impl AsRef<Path>>,
         destructor: impl Future<Output = ()> + Send + 'static,
     ) -> Result<Self, Response> {
         debug!("spawning a job. id={id} workload={:?}", workload);
@@ -83,6 +84,11 @@ impl Job {
         let cmd = devices
             .into_iter()
             .fold(cmd, |cmd, dev| cmd.arg("--device").arg(dev.as_ref()));
+
+        let cmd = paths.into_iter().fold(cmd, |cmd, path| {
+            let path = path.as_ref().display();
+            cmd.args(["-v", &format!("{path}:{path}")])
+        });
 
         let cmd = env::var_os("ENARX_BACKEND")
             .into_iter()

@@ -8,6 +8,8 @@ pub(crate) use self::key::Key;
 pub(crate) use self::user::User;
 pub(crate) use openidconnect::url::Url;
 
+use crate::last_page;
+
 use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,6 +19,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect};
 use axum::routing::get;
 use axum::Router;
+use axum_extra::extract::CookieJar;
 
 use openidconnect::core::{CoreProviderMetadata, CoreResponseType, CoreUserInfoClaims};
 use openidconnect::reqwest::async_http_client;
@@ -89,6 +92,7 @@ fn accept_any_nonce(_: Option<&openidconnect::Nonce>) -> Result<(), String> {
 async fn authorized(
     Query(AuthRequest { code, .. }): Query<AuthRequest>,
     Extension(config): Extension<Arc<Config>>,
+    jar: CookieJar,
 ) -> impl IntoResponse {
     // Get the OIDC token.
     let token = config
@@ -125,18 +129,24 @@ async fn authorized(
 
     // Get the GitHub user identifier.
     match claims.subject().split_once('|') {
-        Some(("github", uid)) => Ok(User::create(
-            &config,
-            uid.parse().map_err(ice("invalid uid"))?,
-            has_starred_enarx,
-        )),
+        Some(("github", uid)) => {
+            let session_cookie = User::create(
+                &config,
+                uid.parse().map_err(ice("invalid uid"))?,
+                has_starred_enarx,
+            );
+            let redirect_path = last_page(&jar).await.unwrap_or("/");
+            Ok(([session_cookie], Redirect::to(redirect_path)).into_response())
+        }
         _ => Err(ice("invalid user type")("unknown user type")),
     }
 }
 
 // TODO: invalidate the session on the remote server properly
-async fn logout() -> impl IntoResponse {
-    User::clear()
+async fn logout(jar: CookieJar) -> impl IntoResponse {
+    let session_cookie = User::clear();
+    let redirect_path = last_page(&jar).await.unwrap_or("/");
+    ([session_cookie], Redirect::to(redirect_path)).into_response()
 }
 
 async fn login(Extension(config): Extension<Arc<Config>>) -> impl IntoResponse {

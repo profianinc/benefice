@@ -747,6 +747,20 @@
         var __workload = null;
         var authenticated = window.document.getElementById('authenticated');
         var demoFqdn = window.document.getElementById('demoFqdn').innerText;
+        // The lifetime of the LAST_PATH cookie in days.
+        var lastPathLifetime = 7;
+
+        // Set a cookie.
+        function setCookie(name, value, daysToLive) {
+            var cookie = name + "=" + value;
+
+            // daysToLive is optional
+            if (typeof daysToLive === "number") {
+                cookie += "; max-age=" + (daysToLive * 24 * 60 * 60);
+            }
+
+            document.cookie = cookie;
+        }
 
         $(function () {
             if (document.getElementById("editor")) {
@@ -774,6 +788,8 @@
             if (!authenticated) {
                 consoleWrite('> Please login to deploy workloads\n');
             }
+
+            setCookie('LAST_PATH', window.location.pathname, lastPathLifetime);
         });
 
         function consoleClear() {

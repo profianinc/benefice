@@ -70,6 +70,7 @@ impl Job {
         ports: impl IntoIterator<Item = u16>,
         devices: impl IntoIterator<Item = impl AsRef<Path>>,
         paths: impl IntoIterator<Item = impl AsRef<Path>>,
+        privileged: bool,
         destructor: impl Future<Output = ()> + Send + 'static,
     ) -> Result<Self, Response> {
         debug!("spawning a job. id={id} workload={:?}", workload);
@@ -80,6 +81,12 @@ impl Job {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .args(["run", "--rm", "--name", id.as_str()]);
+
+        let cmd = if privileged {
+            cmd.arg("--privileged")
+        } else {
+            cmd
+        };
 
         let cmd = devices
             .into_iter()

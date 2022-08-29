@@ -183,8 +183,13 @@ struct Args {
     devices: Vec<PathBuf>,
 
     /// Paths to expose to the container.
+    /// Usually, this would be `/var/run/aesmd/aesm.socket` on Intel SGX and `/var/cache/amd-sev` on AMD SEV.
     #[clap(long)]
     paths: Vec<PathBuf>,
+
+    /// Whether to run the container in privileged mode.
+    #[clap(long)]
+    privileged: bool,
 }
 
 impl Args {
@@ -220,6 +225,7 @@ impl Args {
             runtime_dir: self.runtime_dir,
             devices: self.devices,
             paths: self.paths,
+            privileged: self.privileged,
         };
 
         (limits, oidc, other)
@@ -277,6 +283,7 @@ struct Other {
     runtime_dir: PathBuf,
     devices: Vec<PathBuf>,
     paths: Vec<PathBuf>,
+    privileged: bool,
 }
 
 async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
@@ -386,6 +393,7 @@ async fn main() -> anyhow::Result<()> {
                         other.runtime_dir,
                         other.devices,
                         other.paths,
+                        other.privileged,
                     )
                 })
                 .delete(root_delete),
@@ -499,6 +507,7 @@ async fn root_post(
     runtime_dir: impl AsRef<Path>,
     devices: impl IntoIterator<Item = impl AsRef<Path>>,
     paths: impl IntoIterator<Item = impl AsRef<Path>>,
+    privileged: bool,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -652,6 +661,7 @@ async fn root_post(
         ports,
         devices,
         paths,
+        privileged,
         // Ensure job is killed after a timeout.
         async move {
             sleep(ttl).await;

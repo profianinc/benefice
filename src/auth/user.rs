@@ -10,10 +10,9 @@ use std::time::SystemTime;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes128Gcm, NewAead, Nonce};
 use axum::extract::{FromRequest, RequestParts};
-use axum::headers::Cookie;
+use axum::headers::{Cookie, HeaderName};
 use axum::http::HeaderValue;
 use axum::http::{header::SET_COOKIE, StatusCode};
-use axum::response::{IntoResponse, Redirect, Response};
 use axum::{async_trait, TypedHeader};
 use base64::read::DecoderReader;
 use base64::write::EncoderStringWriter;
@@ -53,7 +52,11 @@ impl Display for User {
 }
 
 impl User {
-    pub(super) fn create(config: &Config, uid: u64, has_starred_enarx: bool) -> Response {
+    pub(super) fn create(
+        config: &Config,
+        uid: u64,
+        has_starred_enarx: bool,
+    ) -> (HeaderName, HeaderValue) {
         let time = SystemTime::now();
         let user = User {
             time,
@@ -86,14 +89,12 @@ impl User {
             config.ttl.as_secs(),
         );
 
-        let header = (SET_COOKIE, HeaderValue::from_str(&s).unwrap());
-        ([header], Redirect::to("/")).into_response()
+        (SET_COOKIE, HeaderValue::from_str(&s).unwrap())
     }
 
-    pub(super) fn clear() -> Response {
+    pub(super) fn clear() -> (HeaderName, HeaderValue) {
         let s = format!("{}=; SameSite=Lax; Path=/; Max-Age=0", COOKIE_NAME);
-        let header = (SET_COOKIE, HeaderValue::from_str(&s).unwrap());
-        ([header], Redirect::to("/")).into_response()
+        (SET_COOKIE, HeaderValue::from_str(&s).unwrap())
     }
 }
 

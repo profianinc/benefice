@@ -53,6 +53,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router, Server};
+use axum_extra::extract::CookieJar;
 use clap::Parser;
 use confargs::{args, prefix_char_filter, Toml};
 use enarx_config::{Config, File, Protocol};
@@ -531,6 +532,11 @@ fn listen_ports<T: FromIterator<u16>>(conf: Config) -> T {
             },
         })
         .collect()
+}
+
+#[inline]
+async fn last_page(jar: &CookieJar) -> Option<&str> {
+    jar.get("LAST_PATH").map(|cookie| cookie.value())
 }
 
 #[derive(Debug)]

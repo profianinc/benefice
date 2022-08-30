@@ -843,7 +843,7 @@
             function fetchConsoleOutput(urls) {
                 for (var i = 0; i < urls.length; i++) {
                     pendingRequests++;
-                    var url = urls[i];
+                    var url = urls[i] + '/' + getWorkload().id;
 
                     $.ajax({
                         url,
@@ -855,6 +855,12 @@
                             setAuthenticated(true);
                         },
                         error: function (error) {
+                            if (error.status == 404) {
+                                // There is likely another workload starting.
+                                // No action should be taken.
+                                return;
+                            }
+
                             errorCount++;
 
                             if (errorCount > 10) {

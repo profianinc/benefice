@@ -265,6 +265,7 @@ in
       axum = rustPackages."registry+https://github.com/rust-lang/crates.io-index".axum."0.5.15" { inherit profileName; };
       base64 = rustPackages."registry+https://github.com/rust-lang/crates.io-index".base64."0.13.0" { inherit profileName; };
       clap = rustPackages."registry+https://github.com/rust-lang/crates.io-index".clap."3.2.17" { inherit profileName; };
+      confargs = rustPackages."registry+https://github.com/rust-lang/crates.io-index".confargs."0.1.1" { inherit profileName; };
       enarx_config = rustPackages."registry+https://github.com/rust-lang/crates.io-index".enarx-config."0.6.3" { inherit profileName; };
       futures_util = rustPackages."registry+https://github.com/rust-lang/crates.io-index".futures-util."0.3.23" { inherit profileName; };
       humansize = rustPackages."registry+https://github.com/rust-lang/crates.io-index".humansize."1.1.1" { inherit profileName; };
@@ -417,6 +418,17 @@ in
     src = fetchCratesIo { inherit name version; sha256 = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"; };
     dependencies = {
       os_str_bytes = rustPackages."registry+https://github.com/rust-lang/crates.io-index".os_str_bytes."6.3.0" { inherit profileName; };
+    };
+  });
+  
+  "registry+https://github.com/rust-lang/crates.io-index".confargs."0.1.1" = overridableMkRustCrate (profileName: rec {
+    name = "confargs";
+    version = "0.1.1";
+    registry = "registry+https://github.com/rust-lang/crates.io-index";
+    src = fetchCratesIo { inherit name version; sha256 = "eba40d10cd64ecc232f8f21da29ca67f7d33d62bc631036cc253220c274a755f"; };
+    dependencies = {
+      anyhow = rustPackages."registry+https://github.com/rust-lang/crates.io-index".anyhow."1.0.62" { inherit profileName; };
+      toml = rustPackages."registry+https://github.com/rust-lang/crates.io-index".toml."0.5.9" { inherit profileName; };
     };
   });
   

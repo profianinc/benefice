@@ -185,6 +185,7 @@ dependencies = [
  "axum",
  "base64",
  "clap",
+ "confargs",
  "enarx-config",
  "futures-util",
  "humansize",
@@ -300,6 +301,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
 dependencies = [
  "os_str_bytes",
+]
+
+[[package]]
+name = "confargs"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eba40d10cd64ecc232f8f21da29ca67f7d33d62bc631036cc253220c274a755f"
+dependencies = [
+ "anyhow",
+ "toml",
 ]
 
 [[package]]

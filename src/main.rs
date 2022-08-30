@@ -49,7 +49,7 @@ use std::time::Duration;
 
 use anyhow::{bail, Context as _};
 use axum::extract::multipart::Field;
-use axum::extract::Multipart;
+use axum::extract::{Multipart, Path as AxumPath};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -295,9 +295,16 @@ async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCo
     }
 }
 
-async fn read_stdout(user: User) -> Result<Vec<u8>, StatusCode> {
+async fn read_stdout(AxumPath(id): AxumPath<String>, user: User) -> Result<Vec<u8>, StatusCode> {
     if let Some(job) = JOBS.read().await.get(&user) {
-        if let Some(stdout) = job.write().await.exec.stdout.as_mut() {
+        let mut lock = job.write().await;
+
+        if lock.id != id {
+            // The client is requesting a job that doesn't exist.
+            return Err(StatusCode::NOT_FOUND);
+        }
+
+        if let Some(stdout) = lock.exec.stdout.as_mut() {
             read_chunk(stdout).await
         } else {
             error!("job is missing STDOUT. user_id=`{user}`");
@@ -308,9 +315,16 @@ async fn read_stdout(user: User) -> Result<Vec<u8>, StatusCode> {
     }
 }
 
-async fn read_stderr(user: User) -> Result<Vec<u8>, StatusCode> {
+async fn read_stderr(AxumPath(id): AxumPath<String>, user: User) -> Result<Vec<u8>, StatusCode> {
     if let Some(job) = JOBS.read().await.get(&user) {
-        if let Some(stdout) = job.write().await.exec.stderr.as_mut() {
+        let mut lock = job.write().await;
+
+        if lock.id != id {
+            // The client is requesting a job that doesn't exist.
+            return Err(StatusCode::NOT_FOUND);
+        }
+
+        if let Some(stdout) = lock.exec.stderr.as_mut() {
             read_chunk(stdout).await
         } else {
             error!("job is missing STDERR. user_id=`{user}`");
@@ -366,8 +380,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let app = Router::new()
-        .route("/out", post(read_stdout))
-        .route("/err", post(read_stderr))
+        .route("/out/:id", post(read_stdout))
+        .route("/err/:id", post(read_stderr))
         .route(
             "/drawbridge",
             get(move |user| root_get(user, limits, Page::Drawbridge)),
@@ -677,7 +691,10 @@ async fn root_post(
         },
     )
     .await?;
-    let resp = Json(json!({ "ports": job.mapped_ports }));
+    let resp = Json(json!({
+        "id": job.id,
+        "ports": job.mapped_ports
+    }));
     info!("job started. job_id=`{}`, user_id=`{user}`", job.id);
 
     if let Some(old) = jobs.insert(user, RwLock::new(job)) {

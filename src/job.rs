@@ -32,7 +32,6 @@ pub(crate) struct Job {
 #[cfg(target_os = "linux")]
 async fn used_ports<T: FromIterator<u16>>(ss: impl AsRef<OsStr>) -> anyhow::Result<T> {
     use std::io::{BufRead, BufReader};
-    use std::net::{Ipv4Addr, SocketAddr};
 
     let out = Command::new(ss)
         .arg("-ltnH")
@@ -46,13 +45,11 @@ async fn used_ports<T: FromIterator<u16>>(ss: impl AsRef<OsStr>) -> anyhow::Resu
                 .split_whitespace()
                 .nth(3)
                 .ok_or_else(|| anyhow!("address column missing"))?
-                .replace('*', &Ipv4Addr::UNSPECIFIED.to_string())
+                .split(':')
+                .last()
+                .ok_or_else(|| anyhow!("failed to parse socket address"))?
                 .parse()
-                .context("failed to parse socket address")
-                .map(|addr| match addr {
-                    SocketAddr::V4(addr) => addr.port(),
-                    SocketAddr::V6(addr) => addr.port(),
-                })
+                .context("failed to parse port")
         })
         .collect()
 }

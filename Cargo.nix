@@ -37,7 +37,7 @@ in
 {
   cargo2nixVersion = "0.11.0";
   workspace = {
-    benefice = rustPackages.unknown.benefice."0.1.0";
+    benefice = rustPackages.unknown.benefice."0.1.1";
   };
   "registry+https://github.com/rust-lang/crates.io-index".aead."0.4.3" = overridableMkRustCrate (profileName: rec {
     name = "aead";
@@ -253,9 +253,9 @@ in
     ];
   });
   
-  "unknown".benefice."0.1.0" = overridableMkRustCrate (profileName: rec {
+  "unknown".benefice."0.1.1" = overridableMkRustCrate (profileName: rec {
     name = "benefice";
-    version = "0.1.0";
+    version = "0.1.1";
     registry = "unknown";
     src = fetchCrateLocal workspaceSrc;
     dependencies = {

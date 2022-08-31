@@ -66,7 +66,7 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
@@ -289,7 +289,10 @@ struct Other {
 async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
     let mut buf = [0; 4096];
     match timeout(READ_TIMEOUT, rdr.read(&mut buf)).await {
-        Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(Err(e)) => {
+            error!("failed to read chunk: {e}");
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
+        }
         Ok(Ok(size)) => Ok(buf[..size].to_vec()),
         Err(..) => Ok(Vec::new()),
     }
@@ -416,8 +419,10 @@ async fn parse_file_field(
     runtime_dir: impl AsRef<Path>,
 ) -> Result<NamedTempFile, Response> {
     let mut len = 0;
-    let mut out = NamedTempFile::new_in(runtime_dir)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+    let mut out = NamedTempFile::new_in(runtime_dir).map_err(|e| {
+        error!("failed to create a new temporary file: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })?;
 
     while let Some(chunk) = field
         .chunk()
@@ -429,8 +434,10 @@ async fn parse_file_field(
             return Err(StatusCode::PAYLOAD_TOO_LARGE.into_response());
         }
 
-        out.write_all(&chunk)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        out.write_all(&chunk).map_err(|e| {
+            error!("failed to write chunk to temporary file: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?;
     }
     Ok(out)
 }
@@ -549,13 +556,13 @@ async fn root_post(
         Workload::Upload { conf, .. } => read_to_string(conf)
             .await
             .map_err(|e| {
-                debug!("failed to read uploaded Enarx.toml: {e}");
+                error!("failed to read uploaded Enarx.toml: {e}");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             })
             .map(|conf| toml::from_str(&conf))?
             .map(listen_ports)
             .map_err(|e| {
-                warn!("failed to parse uploaded Enarx.toml: {e}");
+                debug!("failed to parse uploaded Enarx.toml: {e}");
                 StatusCode::BAD_REQUEST.into_response()
             })?,
         Workload::Drawbridge { slug } => {
@@ -571,13 +578,13 @@ async fn root_post(
                     .text()
                     .await
                     .map_err(|e| {
-                        warn!("failed to read Enarx.toml for `{slug}`: {e}");
-                        StatusCode::BAD_REQUEST.into_response()
+                        error!("failed to read Enarx.toml for `{slug}`: {e}");
+                        StatusCode::INTERNAL_SERVER_ERROR.into_response()
                     })
                     .map(|conf| toml::from_str(&conf))?
                     .map(listen_ports)
                     .map_err(|e| {
-                        warn!("failed to parse Enarx.toml for `{slug}`: {e}");
+                        debug!("failed to parse Enarx.toml for `{slug}`: {e}");
                         StatusCode::BAD_REQUEST.into_response()
                     })?,
                 Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => vec![],

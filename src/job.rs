@@ -17,7 +17,7 @@ use axum::response::{IntoResponse, Response};
 use futures_util::future::{AbortHandle, Abortable};
 use rand::RngCore;
 use tokio::process::{Child, Command};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 #[derive(Debug)]
 pub(crate) struct Job {
@@ -119,6 +119,7 @@ impl Job {
                 .zip(ports)
                 .collect();
             if mapped.len() < port_count {
+                warn!("insufficient amount of open ports");
                 return Err((
                     StatusCode::SERVICE_UNAVAILABLE,
                     "Insufficient amount of open ports on the system, try again later",

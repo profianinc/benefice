@@ -29,11 +29,13 @@
 )]
 
 mod auth;
+mod examples;
 mod job;
 mod secret;
 mod templates;
 
 use self::auth::{Key, User};
+use self::examples::Examples;
 use self::job::Job;
 use self::templates::{HtmlTemplate, IdxTemplate, Page};
 
@@ -58,7 +60,7 @@ use confargs::{args, prefix_char_filter, Toml};
 use enarx_config::{Config, File, Protocol};
 use futures_util::{stream, StreamExt};
 use humansize::{file_size_opts as options, FileSize};
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use serde_json::json;
 use tempfile::NamedTempFile;
 use tokio::fs::read_to_string;
@@ -80,13 +82,8 @@ const MAX_CONF_SIZE: usize = 256 * 1024; // 256 KiB
 /// Active jobs
 static JOBS: Lazy<RwLock<HashMap<User, RwLock<Job>>>> = Lazy::new(Default::default);
 
-/// Predefined examples
-static EXAMPLES: Lazy<Vec<&'static str>> = Lazy::new(|| {
-    include_str!("../examples.txt")
-        .lines()
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-});
+/// Examples
+static EXAMPLES: OnceCell<Examples> = OnceCell::new();
 
 /// Demo workload executor.
 ///
@@ -190,6 +187,11 @@ struct Args {
     /// Whether to run the container in privileged mode.
     #[clap(long)]
     privileged: bool,
+
+    /// Examples to be displayed on the examples page. If none are provided some built-in examples will be provided.
+    /// This will be parsed as TOML.
+    #[clap(long)]
+    examples: Option<Examples>,
 }
 
 impl Args {
@@ -226,6 +228,7 @@ impl Args {
             devices: self.devices,
             paths: self.paths,
             privileged: self.privileged,
+            examples: self.examples,
         };
 
         (limits, oidc, other)
@@ -284,6 +287,7 @@ struct Other {
     devices: Vec<PathBuf>,
     paths: Vec<PathBuf>,
     privileged: bool,
+    examples: Option<Examples>,
 }
 
 async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
@@ -339,6 +343,11 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // Initialize the examples. If none are provided the default examples will be used.
+    EXAMPLES
+        .set(other.examples.unwrap_or_default())
+        .expect("initialize examples");
+
     let app = Router::new()
         .route("/out", post(read_stdout))
         .route("/err", post(read_stderr))
@@ -390,7 +399,8 @@ async fn root_get(user: Option<User>, limits: Limits, page: Page) -> impl IntoRe
     let tmpl = IdxTemplate {
         page,
         toml: enarx_config::CONFIG_TEMPLATE,
-        examples: EXAMPLES.as_slice(),
+        // SAFETY: This should always be initialized in main by this point.
+        examples: EXAMPLES.get().unwrap(),
         user,
         star,
         _size: limits.size(star),

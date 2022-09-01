@@ -213,16 +213,24 @@
                                     <input class="input" type="hidden" name="workloadType" value="drawbridge">
                                     <div class="field">
                                         <label class="label">
-                                            Select an example (<a href="https://github.com/enarx/codex"
+                                            Select an example (<a id="slugUrl" href="https://github.com/enarx/codex"
                                                 target="_blank">source</a>)
                                         </label>
                                         <div class="select">
-                                            <select name="slug">
+                                            <select id="slug" name="slug" onchange="updateExampleInfo()">
                                                 {% for example in examples %}
-                                                <option>{{ example }}</option>
+                                                {% if example.disabled != Some(true) %}
+                                                <option id="{{example.slug}}" data-url="{{example.url}}"
+                                                    data-description="{{example.description}}">{{ example.slug }}
+                                                </option>
+                                                {% endif %}
                                                 {% endfor %}
                                             </select>
                                         </div>
+                                    </div>
+                                    <div class="field">
+                                        <label class="label">Description</label>
+                                        <p id="exampleDescription"></p>
                                     </div>
                                     {% when Page::Drawbridge %}
                                     <input class="input" type="hidden" name="workloadType" value="drawbridge">
@@ -761,6 +769,7 @@
             setWorkload(null);
             killWorkload();
             setAuthenticated(authenticated);
+            updateExampleInfo();
 
             if (!authenticated) {
                 consoleWrite('> Please login to deploy workloads\n');
@@ -798,6 +807,18 @@
                 window.document.getElementById('slugSelect').value = customSlugValue;
                 window.document.getElementById('customSlug').value = slug;
             }
+        }
+
+        function currentSlug() {
+            return document.getElementById('slug').value;
+        }
+
+        function updateExampleInfo() {
+            var desc = document.getElementById('exampleDescription');
+            var url = document.getElementById('slugUrl');
+            var slugData = document.getElementById(currentSlug()).dataset;
+            desc.innerHTML = slugData.description;
+            url.setAttribute('href', url);
         }
 
         function onSubmit(event) {

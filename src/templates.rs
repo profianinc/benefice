@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
+use crate::examples::Example;
+
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
@@ -17,7 +19,7 @@ pub(crate) struct IdxTemplate<'a> {
     pub(crate) demo_fqdn: String,
     pub(crate) page: Page,
     pub(crate) toml: &'static str,
-    pub(crate) examples: &'a [&'static str],
+    pub(crate) examples: &'a [Example],
     pub(crate) user: bool,
     pub(crate) star: bool,
     pub(crate) _size: usize,

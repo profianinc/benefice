@@ -1,12 +1,11 @@
 // SPDX-FileCopyrightText: 2022 Profian Inc. <opensource@profian.com>
 // SPDX-License-Identifier: AGPL-3.0-only
 
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::io::{Cursor, Read, Write};
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes128Gcm, NewAead, Nonce};
@@ -19,29 +18,18 @@ use axum::{async_trait, TypedHeader};
 use base64::read::DecoderReader;
 use base64::write::EncoderStringWriter;
 use base64::URL_SAFE_NO_PAD;
-use once_cell::sync::Lazy;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
-use tokio::time::sleep;
-use tracing::error;
 
 use super::Config;
 
-const STAR_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const COOKIE_NAME: &str = "SESSION";
-
-static STAR: Lazy<RwLock<HashMap<(u64, &'static str), bool>>> = Lazy::new(|| HashMap::new().into());
-
-#[derive(Debug, Deserialize)]
-struct Repo {
-    full_name: String,
-}
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct User {
     time: SystemTime,
     uid: u64,
+    has_starred_enarx: bool,
 }
 
 impl Eq for User {}
@@ -65,9 +53,13 @@ impl Display for User {
 }
 
 impl User {
-    pub(super) fn create(config: &Config, uid: u64) -> Response {
+    pub(super) fn create(config: &Config, uid: u64, has_starred_enarx: bool) -> Response {
         let time = SystemTime::now();
-        let user = User { time, uid };
+        let user = User {
+            time,
+            uid,
+            has_starred_enarx,
+        };
 
         // Encode the structure.
         let plaintext = serde_json::to_vec(&user).unwrap();
@@ -153,36 +145,7 @@ impl<B: Send> FromRequest<B> for User {
 }
 
 impl User {
-    pub(crate) async fn is_starred(&self, repo: &'static str) -> bool {
-        if let Some(star) = STAR.read().await.get(&(self.uid, repo)) {
-            return *star;
-        }
-
-        match reqwest::get(&format!("https://api.github.com/user/{}/starred", self.uid)).await {
-            Err(e) => {
-                error!("error fetching github star status: {}", e);
-                false
-            }
-
-            Ok(response) => match response.json::<Vec<Repo>>().await {
-                Ok(repos) => {
-                    let star = repos.iter().any(|r| r.full_name == repo);
-
-                    let uid = self.uid;
-                    _ = STAR.write().await.insert((uid, repo), star);
-                    _ = tokio::spawn(async move {
-                        sleep(STAR_TIMEOUT).await;
-                        _ = STAR.write().await.remove(&(uid, repo));
-                    });
-
-                    star
-                }
-
-                Err(e) => {
-                    error!("error parsing github star status: {}", e);
-                    false
-                }
-            },
-        }
+    pub(crate) fn has_starred_enarx(&self) -> bool {
+        self.has_starred_enarx
     }
 }

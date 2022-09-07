@@ -18,7 +18,7 @@ use axum::response::{IntoResponse, Redirect};
 use axum::routing::get;
 use axum::Router;
 
-use openidconnect::core::{CoreClient, CoreProviderMetadata, CoreResponseType, CoreUserInfoClaims};
+use openidconnect::core::{CoreProviderMetadata, CoreResponseType, CoreUserInfoClaims};
 use openidconnect::reqwest::async_http_client;
 use openidconnect::{
     AuthType, AuthenticationFlow, AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl,
@@ -26,11 +26,46 @@ use openidconnect::{
 };
 
 use anyhow::{Context as _, Error};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::error;
 
+#[derive(Deserialize, Serialize, Debug)]
+struct EnarxClaims {
+    has_starred_enarx: bool,
+}
+
+impl openidconnect::AdditionalClaims for EnarxClaims {}
+
+type OIDCClient = openidconnect::Client<
+    EnarxClaims,
+    openidconnect::core::CoreAuthDisplay,
+    openidconnect::core::CoreGenderClaim,
+    openidconnect::core::CoreJweContentEncryptionAlgorithm,
+    openidconnect::core::CoreJwsSigningAlgorithm,
+    openidconnect::core::CoreJsonWebKeyType,
+    openidconnect::core::CoreJsonWebKeyUse,
+    openidconnect::core::CoreJsonWebKey,
+    openidconnect::core::CoreAuthPrompt,
+    openidconnect::StandardErrorResponse<openidconnect::core::CoreErrorResponseType>,
+    openidconnect::StandardTokenResponse<
+        openidconnect::IdTokenFields<
+            EnarxClaims,
+            openidconnect::EmptyExtraTokenFields,
+            openidconnect::core::CoreGenderClaim,
+            openidconnect::core::CoreJweContentEncryptionAlgorithm,
+            openidconnect::core::CoreJwsSigningAlgorithm,
+            openidconnect::core::CoreJsonWebKeyType,
+        >,
+        openidconnect::core::CoreTokenType,
+    >,
+    openidconnect::core::CoreTokenType,
+    openidconnect::core::CoreTokenIntrospectionResponse,
+    openidconnect::core::CoreRevocableToken,
+    openidconnect::core::CoreRevocationErrorResponse,
+>;
+
 struct Config {
-    oidc: CoreClient,
+    oidc: OIDCClient,
     ttl: Duration,
     key: Key,
 }
@@ -47,6 +82,10 @@ fn ice<E: Display>(info: &'static str) -> impl Fn(E) -> (StatusCode, &'static st
     }
 }
 
+fn accept_any_nonce(_: Option<&openidconnect::Nonce>) -> Result<(), String> {
+    Ok(())
+}
+
 async fn authorized(
     Query(AuthRequest { code, .. }): Query<AuthRequest>,
     Extension(config): Extension<Arc<Config>>,
@@ -59,7 +98,23 @@ async fn authorized(
         .await
         .map_err(ice("error constructing request token"))?;
 
-    // Get the OIDC claims from the token.
+    let has_starred_enarx = match token.extra_fields().id_token() {
+        None => {
+            error!("No id token found in response");
+            false
+        }
+        Some(id_token) => {
+            match id_token.claims(&config.oidc.id_token_verifier(), accept_any_nonce) {
+                Err(e) => {
+                    error!("Failed to verify claims: {}", e);
+                    false
+                }
+                Ok(claims) => claims.additional_claims().has_starred_enarx,
+            }
+        }
+    };
+
+    // Get the OIDC claims from the User Info endpoint.
     let claims: CoreUserInfoClaims = config
         .oidc
         .user_info(token.access_token().clone(), None)
@@ -73,6 +128,7 @@ async fn authorized(
         Some(("github", uid)) => Ok(User::create(
             &config,
             uid.parse().map_err(ice("invalid uid"))?,
+            has_starred_enarx,
         )),
         _ => Err(ice("invalid user type")("unknown user type")),
     }
@@ -113,7 +169,7 @@ impl Oidc {
             .await
             .with_context(|| "unable to fetch OIDC provider metadata")?;
 
-        let oidc = CoreClient::from_provider_metadata(metadata, id, secret)
+        let oidc = OIDCClient::from_provider_metadata(metadata, id, secret)
             .set_redirect_uri(redir)
             .set_auth_type(AuthType::RequestBody);
 

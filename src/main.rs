@@ -384,7 +384,7 @@ async fn main() -> anyhow::Result<()> {
 async fn root_get(user: Option<User>, limits: Limits, page: Page) -> impl IntoResponse {
     let (user, star) = match user {
         None => (false, false),
-        Some(user) => (true, user.is_starred("enarx/enarx").await),
+        Some(user) => (true, user.has_starred_enarx()),
     };
 
     let tmpl = IdxTemplate {
@@ -498,7 +498,7 @@ async fn root_post(
         Some(user) => user,
     };
 
-    let star = user.is_starred("enarx/enarx").await;
+    let star = user.has_starred_enarx();
     let ttl = limits.time_to_live(star);
     let max_wasm_size = limits.size(star);
 

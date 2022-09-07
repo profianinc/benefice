@@ -107,6 +107,12 @@ struct Args {
     #[clap(long)]
     url: auth::Url,
 
+    /// Externally accessible domain name for serving demos.
+    /// This should not be the same as the benefice server URL for security reasons.
+    /// For example: demo.example.com
+    #[clap(long)]
+    demo_fqdn: String,
+
     /// Maximum jobs.
     /// Defaults to 16x the number of cores on the system.
     #[clap(long, default_value_t = num_cpus::get() * 16)]
@@ -211,6 +217,7 @@ impl Args {
         };
 
         let other = Other {
+            demo_fqdn: self.demo_fqdn,
             addr: self.addr,
             jobs_max: self.jobs,
             port_range: self.port_min..self.port_max,
@@ -273,6 +280,7 @@ impl Limits {
 
 #[derive(Clone, Debug)]
 struct Other {
+    demo_fqdn: String,
     addr: SocketAddr,
     jobs_max: usize,
     port_range: Range<u16>,
@@ -344,33 +352,42 @@ async fn main() -> anyhow::Result<()> {
         .route("/err", post(read_stderr))
         .route(
             "/drawbridge",
-            get(move |user| root_get(user, limits, Page::Drawbridge)),
+            get({
+                let demo_fqdn = other.demo_fqdn.clone();
+                move |user| root_get(user, limits, Page::Drawbridge, demo_fqdn)
+            }),
         )
         .route(
             "/upload",
-            get(move |user| root_get(user, limits, Page::Upload)),
+            get({
+                let demo_fqdn = other.demo_fqdn.clone();
+                move |user| root_get(user, limits, Page::Upload, demo_fqdn)
+            }),
         )
         .route(
             "/",
-            get(move |user| root_get(user, limits, Page::Examples))
-                .post(move |user, mp| {
-                    root_post(
-                        user,
-                        mp,
-                        limits,
-                        other.port_range,
-                        other.listen_max,
-                        other.jobs_max,
-                        other.ss_command,
-                        other.oci_command,
-                        other.oci_image,
-                        other.runtime_dir,
-                        other.devices,
-                        other.paths,
-                        other.privileged,
-                    )
-                })
-                .delete(root_delete),
+            get({
+                let demo_fqdn = other.demo_fqdn.clone();
+                move |user| root_get(user, limits, Page::Examples, demo_fqdn)
+            })
+            .post(move |user, mp| {
+                root_post(
+                    user,
+                    mp,
+                    limits,
+                    other.port_range,
+                    other.listen_max,
+                    other.jobs_max,
+                    other.ss_command,
+                    other.oci_command,
+                    other.oci_image,
+                    other.runtime_dir,
+                    other.devices,
+                    other.paths,
+                    other.privileged,
+                )
+            })
+            .delete(root_delete),
         );
 
     let app = oidc.routes(app).await?;
@@ -381,13 +398,19 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn root_get(user: Option<User>, limits: Limits, page: Page) -> impl IntoResponse {
+async fn root_get(
+    user: Option<User>,
+    limits: Limits,
+    page: Page,
+    demo_fqdn: String,
+) -> impl IntoResponse {
     let (user, star) = match user {
         None => (false, false),
         Some(user) => (true, user.is_starred("enarx/enarx").await),
     };
 
     let tmpl = IdxTemplate {
+        demo_fqdn,
         page,
         toml: enarx_config::CONFIG_TEMPLATE,
         examples: EXAMPLES.as_slice(),

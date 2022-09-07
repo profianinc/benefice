@@ -14,6 +14,7 @@ pub(crate) enum Page {
 #[derive(Template)]
 #[template(path = "idx.html")]
 pub(crate) struct IdxTemplate<'a> {
+    pub(crate) demo_fqdn: String,
     pub(crate) page: Page,
     pub(crate) toml: &'static str,
     pub(crate) examples: &'a [&'static str],

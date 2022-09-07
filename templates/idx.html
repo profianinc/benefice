@@ -713,6 +713,7 @@
         </div>
     </footer>
     {% if user %}<div id="authenticated" class="is-hidden"></div>{% endif %}
+    <div id="demoFqdn" class="is-hidden">{{demo_fqdn}}</div>
     <script>
         var enarxTomlEditor = null;
         var console = window.document.getElementById('console');
@@ -720,6 +721,7 @@
         var killButton = window.document.getElementById('killButton');
         var __workload = null;
         var authenticated = window.document.getElementById('authenticated');
+        var demoFqdn = window.document.getElementById('demoFqdn').innerText;
 
         $(function () {
             if (document.getElementById("editor")) {
@@ -909,7 +911,7 @@
                     var containerPort = map[1];
                     result +=
                         '<li>Port ' + hostPort + ' -> ' + containerPort +
-                        ' (<a href="https://' + window.location.hostname + ':' + hostPort + '/" target="_blank">link</a>)</li>';
+                        ' (<a href="https://' + demoFqdn + ':' + hostPort + '/" target="_blank">link</a>)</li>';
                 }
 
                 return result;

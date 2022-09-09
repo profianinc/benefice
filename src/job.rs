@@ -77,7 +77,8 @@ impl Job {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
-            .args(["run", "--rm", "--name", id.as_str()]);
+            .args(["run", "--rm", "--name", id.as_str()])
+            .arg("--log-driver=none");
 
         let cmd = if privileged {
             cmd.arg("--privileged")

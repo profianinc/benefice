@@ -65,8 +65,14 @@ use tokio::fs::read_to_string;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
-use tower_http::trace::TraceLayer;
-use tracing::{debug, error, info};
+use tower_http::{
+    trace::{
+        DefaultMakeSpan, DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest,
+        DefaultOnResponse, TraceLayer,
+    },
+    LatencyUnit,
+};
+use tracing::{debug, error, info, Level};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
@@ -353,13 +359,19 @@ async fn main() -> anyhow::Result<()> {
         .map(Args::parse_from)?
         .split();
 
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "example_tracing_aka_logging=debug,tower_http=debug".into()),
-        ))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let tracing_registry = tracing_subscriber::registry().with(tracing_subscriber::EnvFilter::new(
+        std::env::var("RUST_LOG")
+            .unwrap_or_else(|_| "example_tracing_aka_logging=debug,tower_http=debug".into()),
+    ));
+    if std::env::var("RUST_LOG_JSON").is_ok() {
+        tracing_registry
+            .with(tracing_subscriber::fmt::layer().json())
+            .init();
+    } else {
+        tracing_registry
+            .with(tracing_subscriber::fmt::layer())
+            .init();
+    }
 
     let app = Router::new()
         .route("/out/:id", post(read_stdout))
@@ -405,9 +417,34 @@ async fn main() -> anyhow::Result<()> {
         );
 
     let app = oidc.routes(app).await?;
+    let app = app.layer(
+        TraceLayer::new_for_http()
+            .make_span_with(
+                DefaultMakeSpan::new()
+                    .level(Level::INFO)
+                    .include_headers(true),
+            )
+            .on_request(DefaultOnRequest::new().level(Level::INFO))
+            .on_response(
+                DefaultOnResponse::new()
+                    .level(Level::INFO)
+                    .latency_unit(LatencyUnit::Micros),
+            )
+            .on_body_chunk(DefaultOnBodyChunk::new())
+            .on_eos(
+                DefaultOnEos::new()
+                    .level(Level::INFO)
+                    .latency_unit(LatencyUnit::Micros),
+            )
+            .on_failure(
+                DefaultOnFailure::new()
+                    .level(Level::INFO)
+                    .latency_unit(LatencyUnit::Micros),
+            ),
+    );
 
     Server::bind(&other.addr)
-        .serve(app.layer(TraceLayer::new_for_http()).into_make_service())
+        .serve(app.into_make_service())
         .await?;
     Ok(())
 }

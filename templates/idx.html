@@ -79,18 +79,57 @@
             }
         }
 
-        nav[data-authenticated="true"] .login {
+        body[data-authenticated="true"] .login {
             display: none !important
         }
 
-        nav[data-authenticated="false"] .logout {
+        body[data-authenticated="false"] .logout {
             display: none !important
+        }
+
+        body[data-authenticated="false"] #deployButton {
+            display: none !important
+        }
+
+        body[data-authenticated="true"] #deployButton {
+            display: inline-block !important
+        }
+
+        body[data-authenticated="false"] #killButton {
+            display: none !important
+        }
+
+        body[data-authenticated="true"] #killButton {
+            display: inline-block !important
+        }
+
+        body[data-authenticated="false"] #fileUploadEnabled {
+            display: none !important
+        }
+
+        body[data-authenticated="true"] #fileUploadDisabled {
+            display: none !important
+        }
+
+        body[data-authenticated="false"] #editor {
+            opacity: 60%;
+        }
+
+        #fileUploadDisabled {
+            cursor: not-allowed;
+        }
+
+        #fileUploadDisabled .file-cta,
+        #fileUploadDisabled .file-cta .file-label,
+        #fileUploadDisabled .file-name {
+            opacity: 50%;
+            cursor: not-allowed;
         }
     </style>
 </head>
 
-<body>
-    <nav class="navbar is-light" role="navigation" aria-label="main navigation" data-authenticated="true">
+<body data-authenticated="true">
+    <nav class="navbar is-light" role="navigation" aria-label="main navigation">
         <!-- mobile only navigation -->
         <div class="mobile-nav">
             <div class="navbar-brand" style="width: 100%">
@@ -236,14 +275,32 @@
                                     <input class="input" type="hidden" name="workloadType" value="drawbridge">
                                     <div class="field">
                                         <label class="label">Drawbridge package</label>
-                                        <input class="input" type="text" name="slug" placeholder="user/my-repo:0.1.0">
+                                        <input id="customSlug" class="input" type="text" name="slug"
+                                            placeholder="user/my-repo:0.1.0">
                                     </div>
                                     {% when Page::Upload %}
                                     <input class="input" type="hidden" name="workloadType" value="upload">
-                                    <div class="file">
+                                    <div id="fileUploadEnabled" class="file">
                                         <label class="file-label">
                                             <input id="wasmInput" class="file-input" type="file" name="wasm"
                                                 accept="application/wasm">
+                                            <span class="file-cta">
+                                                <span class="file-icon">
+                                                    <i class="fas fa-upload"></i>
+                                                </span>
+                                                <span class="file-label">
+                                                    WebAssembly file...
+                                                </span>
+                                            </span>
+                                            <span id="file-name" class="file-name">
+                                                No file selected
+                                            </span>
+                                        </label>
+                                    </div>
+                                    <div id="fileUploadDisabled" class="file">
+                                        <label class="file-label">
+                                            <input id="wasmInput" class="file-input" type="file" name="wasm"
+                                                accept="application/wasm" disabled>
                                             <span class="file-cta">
                                                 <span class="file-icon">
                                                     <i class="fas fa-upload"></i>
@@ -280,9 +337,13 @@
                                         {% endif %}
                                     </p>
                                     <br />
-                                    <button id="deployButton" type="submit" class="button is-success">Deploy</button>
-                                    <button id="killButton" class="button is-danger" disabled
+                                    <button id="deployButton" type="submit" class="button is-success"
+                                        style="display: none">Deploy</button>
+                                    <button id="killButton" class="button is-danger" style="display: none" disabled
                                         onclick="killWorkload(event)">Kill</button>
+                                    <a id="formLoginButton" class="login button is-success" href="/login">
+                                        Log in
+                                    </a>
                                 </form>
                             </div>
                         </div>
@@ -994,14 +1055,34 @@
 
         function setAuthenticated(isAuthenticated) {
             authenticated = isAuthenticated;
-            var nav = window.document.getElementsByTagName('nav')[0];
+            var body = window.document.getElementsByTagName('body')[0];
+            var slugSelect = document.getElementById('slug');
+            var customSlug = document.getElementById('customSlug');
+
+            function enableIfExists(id) {
+                var element = document.getElementById(id);
+
+                if (element) {
+                    element.removeAttribute('disabled');
+                }
+            }
+
+            function disableIfExists(id) {
+                var element = document.getElementById(id);
+
+                if (element) {
+                    element.setAttribute('disabled', '');
+                }
+            }
 
             if (isAuthenticated) {
-                deployButton.removeAttribute('disabled');
-                nav.setAttribute('data-authenticated', 'true');
+                enableIfExists('slug');
+                enableIfExists('customSlug');
+                body.setAttribute('data-authenticated', 'true');
             } else {
-                deployButton.setAttribute('disabled', '');
-                nav.setAttribute('data-authenticated', 'false');
+                disableIfExists('slug');
+                disableIfExists('customSlug');
+                body.setAttribute('data-authenticated', 'false');
             }
 
             if (enarxTomlEditor) {

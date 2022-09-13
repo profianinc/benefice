@@ -826,15 +826,25 @@
         }
 
         function currentSlug() {
-            return document.getElementById('slug').value;
+            var slug = document.getElementById('slug');
+
+            if (!slug) {
+                return null;
+            }
+
+            return slug.value;
         }
 
         function updateExampleInfo() {
             var desc = document.getElementById('exampleDescription');
             var url = document.getElementById('slugUrl');
-            var slugData = document.getElementById(currentSlug()).dataset;
-            desc.innerHTML = slugData.description;
-            url.setAttribute('href', url);
+            var slug = currentSlug();
+
+            if (slug) {
+                var slugData = document.getElementById(slug).dataset;
+                desc.innerHTML = slugData.description;
+                url.setAttribute('href', url);
+            }
         }
 
         function onSubmit(event) {

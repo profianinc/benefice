@@ -756,7 +756,7 @@
 
             // daysToLive is optional
             if (typeof daysToLive === "number") {
-                cookie += "; max-age=" + (daysToLive * 24 * 60 * 60);
+                cookie += "; SameSite=Lax; max-age=" + (daysToLive * 24 * 60 * 60);
             }
 
             document.cookie = cookie;

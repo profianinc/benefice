@@ -262,9 +262,9 @@ struct Limits {
 impl Limits {
     fn time_to_live(&self, star: bool) -> Duration {
         if star {
-            self.timeout_default
-        } else {
             self.timeout_starred
+        } else {
+            self.timeout_default
         }
     }
 

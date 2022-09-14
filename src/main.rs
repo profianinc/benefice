@@ -271,9 +271,9 @@ impl Limits {
     /// Get the maximum allowed wasm size in bytes.
     fn size(&self, star: bool) -> usize {
         let size_megabytes = if star {
-            self.size_limit_default
-        } else {
             self.size_limit_starred
+        } else {
+            self.size_limit_default
         };
         size_megabytes * 1024 * 1024
     }

@@ -425,22 +425,26 @@ async fn main() -> anyhow::Result<()> {
                 let demo_fqdn = other.demo_fqdn.clone();
                 move |user| root_get(user, limits, Page::Examples, demo_fqdn)
             })
-            .post(move |user, mp| {
-                root_post(
-                    user,
-                    mp,
-                    limits,
-                    other.port_range,
-                    other.listen_max,
-                    other.jobs_max,
-                    other.ss_command,
-                    other.oci_command,
-                    other.oci_image,
-                    other.runtime_dir,
-                    other.devices,
-                    other.paths,
-                    other.privileged,
-                )
+            .post({
+                let demo_fqdn = other.demo_fqdn.clone();
+                move |user, mp| {
+                    root_post(
+                        user,
+                        mp,
+                        limits,
+                        other.port_range,
+                        other.listen_max,
+                        other.jobs_max,
+                        other.ss_command,
+                        other.oci_command,
+                        other.oci_image,
+                        other.runtime_dir,
+                        other.devices,
+                        other.paths,
+                        other.privileged,
+                        demo_fqdn,
+                    )
+                }
             })
             .delete(root_delete),
         );
@@ -543,7 +547,7 @@ async fn parse_file_field(
 }
 
 #[inline]
-fn listen_ports<T: FromIterator<u16>>(conf: Config) -> T {
+fn listen_ports<T: FromIterator<(u16, String)>>(conf: Config, demo_fqdn: String) -> T {
     conf.files
         .into_iter()
         .filter_map(|file| match file {
@@ -552,9 +556,13 @@ fn listen_ports<T: FromIterator<u16>>(conf: Config) -> T {
             | File::Stdout { .. }
             | File::Stderr { .. }
             | File::Connect { .. } => None,
-            File::Listen { port, prot, .. } => match prot {
-                Protocol::Tls | Protocol::Tcp => Some(port),
-            },
+            File::Listen { port, prot, .. } => {
+                let prot = match prot {
+                    Protocol::Tls => "https",
+                    Protocol::Tcp => "http",
+                };
+                Some((port, format!("{}://{}:{}", prot, demo_fqdn, port)))
+            }
         })
         .collect()
 }
@@ -591,6 +599,7 @@ async fn root_post(
     devices: impl IntoIterator<Item = impl AsRef<Path>>,
     paths: impl IntoIterator<Item = impl AsRef<Path>>,
     privileged: bool,
+    demo_fqdn: String,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -657,7 +666,7 @@ async fn root_post(
         }
     };
 
-    let ports: Vec<u16> = match &workload {
+    let ports: Vec<(u16, String)> = match &workload {
         Workload::Upload { conf, .. } => read_to_string(conf)
             .await
             .map_err(|e| {
@@ -665,7 +674,7 @@ async fn root_post(
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             })
             .map(|conf| toml::from_str(&conf))?
-            .map(listen_ports)
+            .map(|config| listen_ports(config, demo_fqdn))
             .map_err(|e| {
                 debug!("failed to parse uploaded Enarx.toml: {e}");
                 StatusCode::BAD_REQUEST.into_response()
@@ -687,7 +696,7 @@ async fn root_post(
                         StatusCode::INTERNAL_SERVER_ERROR.into_response()
                     })
                     .map(|conf| toml::from_str(&conf))?
-                    .map(listen_ports)
+                    .map(|config| listen_ports(config, demo_fqdn))
                     .map_err(|e| {
                         debug!("failed to parse Enarx.toml for `{slug}`: {e}");
                         StatusCode::BAD_REQUEST.into_response()

@@ -26,7 +26,8 @@ pub(crate) struct Job {
 
     pub(crate) id: String,
     pub(crate) exec: Child,
-    pub(crate) mapped_ports: HashMap<u16, u16>,
+    // Host port -> (Container port, Url)
+    pub(crate) mapped_ports: HashMap<u16, (u16, String)>,
 }
 
 #[cfg(target_os = "linux")]
@@ -64,7 +65,7 @@ impl Job {
         oci_command: impl AsRef<OsStr>,
         oci_image: impl AsRef<str>,
         port_range: Range<u16>,
-        ports: impl IntoIterator<Item = u16>,
+        ports: impl IntoIterator<Item = (u16, String)>,
         devices: impl IntoIterator<Item = impl AsRef<Path>>,
         paths: impl IntoIterator<Item = impl AsRef<Path>>,
         privileged: bool,
@@ -131,7 +132,7 @@ impl Job {
         } else {
             Default::default()
         };
-        let cmd = mapped_ports.iter().fold(cmd, |cmd, (host, cont)| {
+        let cmd = mapped_ports.iter().fold(cmd, |cmd, (host, (cont, _))| {
             cmd.arg("-p").arg(format!("{host}:{cont}"))
         });
 

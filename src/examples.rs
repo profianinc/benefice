@@ -97,7 +97,7 @@ impl Default for Examples {
                 description: r#"A Zig fibonacci example."#.to_string()
             },
             Example {
-                disabled: Some(true),
+                disabled: None,
                 slug: "examples/greenhouse-monitor-csharp:0.1.0".to_string(),
                 url: "https://github.com/enarx/GreenhouseMonitor/tree/v0.1.0".to_string(),
                 description: r#"GreenhouseMonitor is a ASP.NET demo application by Steve Sanderson at Microsoft compiled to WASI via <a href="https://github.com/SteveSandersonMS/dotnet-wasi-sdk" target="_blank">Wasi.Sdk</a>.<br />

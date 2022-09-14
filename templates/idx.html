@@ -968,10 +968,11 @@
                 for (var i = 0; i < mappedPorts.length; i++) {
                     var map = mappedPorts[i];
                     var hostPort = map[0];
-                    var containerPort = map[1];
+                    var containerPort = map[1][0];
+                    var containerUrl = map[1][1];
                     result +=
                         '<li>Port ' + hostPort + ' -> ' + containerPort +
-                        ' (<a href="' + demoFqdn + ':' + hostPort + '/" target="_blank">link</a>)</li>';
+                        ' (<a href="' + containerUrl + '/" target="_blank">link</a>)</li>';
                 }
 
                 return result;

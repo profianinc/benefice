@@ -70,8 +70,8 @@ use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tower_http::{
     trace::{
-        DefaultMakeSpan, DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest,
-        DefaultOnResponse, TraceLayer,
+        DefaultOnBodyChunk, DefaultOnEos, DefaultOnFailure, DefaultOnRequest, DefaultOnResponse,
+        TraceLayer,
     },
     LatencyUnit,
 };
@@ -357,6 +357,24 @@ async fn read_stderr(AxumPath(id): AxumPath<String>, user: User) -> Result<Vec<u
     }
 }
 
+#[derive(Debug, Clone, Default)]
+struct SpanMaker;
+
+impl<B> tower_http::trace::MakeSpan<B> for SpanMaker {
+    fn make_span(&mut self, request: &axum::http::request::Request<B>) -> tracing::span::Span {
+        let reqid = uuid::Uuid::new_v4();
+        tracing::span!(
+            Level::INFO,
+            "request",
+            method = %request.method(),
+            uri = %request.uri(),
+            version = ?request.version(),
+            headers = ?request.headers(),
+            request_id = %reqid,
+        )
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let (limits, oidc, other) = args::<Toml>(prefix_char_filter::<'@'>)
@@ -365,8 +383,9 @@ async fn main() -> anyhow::Result<()> {
         .split();
 
     let tracing_registry = tracing_subscriber::registry().with(tracing_subscriber::EnvFilter::new(
-        std::env::var("RUST_LOG")
-            .unwrap_or_else(|_| "example_tracing_aka_logging=debug,tower_http=debug".into()),
+        std::env::var("RUST_LOG").unwrap_or_else(|_| {
+            "benefice=info,example_tracing_aka_logging=debug,tower_http=debug".into()
+        }),
     ));
     if std::env::var("RUST_LOG_JSON").is_ok() {
         tracing_registry
@@ -429,11 +448,7 @@ async fn main() -> anyhow::Result<()> {
     let app = oidc.routes(app).await?;
     let app = app.layer(
         TraceLayer::new_for_http()
-            .make_span_with(
-                DefaultMakeSpan::new()
-                    .level(Level::INFO)
-                    .include_headers(true),
-            )
+            .make_span_with(SpanMaker::default())
             .on_request(DefaultOnRequest::new().level(Level::INFO))
             .on_response(
                 DefaultOnResponse::new()

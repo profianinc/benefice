@@ -258,11 +258,9 @@
                                         <div class="select">
                                             <select id="slug" name="slug" onchange="updateExampleInfo()">
                                                 {% for example in examples %}
-                                                {% if !example.disabled %}
                                                 <option id="{{example.slug}}" data-url="{{example.url}}"
                                                     data-description="{{example.description}}">{{ example.slug }}
                                                 </option>
-                                                {% endif %}
                                                 {% endfor %}
                                             </select>
                                         </div>

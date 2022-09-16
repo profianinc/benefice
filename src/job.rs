@@ -17,7 +17,7 @@ use axum::response::{IntoResponse, Response};
 use futures_util::future::{AbortHandle, Abortable};
 use rand::RngCore;
 use tokio::process::{Child, Command};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 #[derive(Debug)]
 pub(crate) struct Job {
@@ -71,7 +71,7 @@ impl Job {
         privileged: bool,
         destructor: impl Future<Output = ()> + Send + 'static,
     ) -> Result<Self, Response> {
-        debug!("spawning a job. id={id} workload={:?}", workload);
+        info!(job_id = id, ?workload, "spawning a job");
         let mut cmd = Command::new(&oci_command);
         let cmd = cmd
             .stdin(Stdio::null())
@@ -109,7 +109,7 @@ impl Job {
 
         let mapped_ports = if port_count > 0 {
             let used: HashSet<_> = used_ports(ss_command).await.map_err(|e| {
-                error!("failed to lookup used ports: {e}");
+                error!(error = ?e, "failed to lookup used ports");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             })?;
             let start = port_range.start
@@ -153,9 +153,9 @@ impl Job {
                 "/app/main.wasm",
             ]),
         };
-        debug!("spawning a job run command. cmd={:?}", cmd);
+        debug!(?cmd, "spawning a job run command");
         let exec = cmd.spawn().map_err(|e| {
-            error!("failed to start job: {e}");
+            error!(error = ?e, "failed to start job");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
 
@@ -173,16 +173,16 @@ impl Job {
     pub(crate) async fn kill(mut self) {
         self.destructor.abort();
         if let Err(e) = self.exec.kill().await {
-            error!("failed to kill job: {e} job_id={}", self.id);
+            error!(error = ?e, job_id = self.id, "failed to kill job");
         }
         if let Workload::Upload { wasm, conf } = self.workload {
             debug!("closing `main.wasm`");
             if let Err(e) = wasm.close() {
-                error!("failed to close `main.wasm`: {e}. job_id={}", self.id);
+                error!(error = ?e, job_id = self.id, "failed to close `main.wasm`");
             };
             debug!("closing `Enarx.toml`");
             if let Err(e) = conf.close() {
-                error!("failed to close `Enarx.toml`: {e}. job_id={}", self.id);
+                error!(error = ?e, job_id = self.id, "failed to close `Enarx.toml`");
             };
         }
     }

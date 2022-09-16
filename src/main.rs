@@ -75,7 +75,7 @@ use tower_http::{
     },
     LatencyUnit,
 };
-use tracing::{debug, error, info, Level};
+use tracing::{error, info, Level};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use uuid::Uuid;
@@ -282,7 +282,7 @@ impl Limits {
         self.size(star)
             .file_size(options::CONVENTIONAL)
             .unwrap_or_else(|e| {
-                error!("Failed to get human readable size string: {e}");
+                error!(error = ?e, "Failed to get human readable size string");
                 "?".to_string()
             })
     }
@@ -309,7 +309,7 @@ async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCo
     let mut buf = [0; 4096];
     match timeout(READ_TIMEOUT, rdr.read(&mut buf)).await {
         Ok(Err(e)) => {
-            error!("failed to read chunk: {e}");
+            error!(error = ?e, "failed to read chunk");
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
         Ok(Ok(size)) => Ok(buf[..size].to_vec()),
@@ -329,7 +329,7 @@ async fn read_stdout(AxumPath(id): AxumPath<String>, user: User) -> Result<Vec<u
         if let Some(stdout) = lock.exec.stdout.as_mut() {
             read_chunk(stdout).await
         } else {
-            error!("job is missing STDOUT. user_id=`{user}`");
+            error!(%user, job_id = id, "job is missing STDOUT");
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     } else {
@@ -349,7 +349,7 @@ async fn read_stderr(AxumPath(id): AxumPath<String>, user: User) -> Result<Vec<u
         if let Some(stdout) = lock.exec.stderr.as_mut() {
             read_chunk(stdout).await
         } else {
-            error!("job is missing STDERR. user_id=`{user}`");
+            error!(%user, job_id = id, "job is missing STDERR");
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     } else {
@@ -524,7 +524,7 @@ async fn parse_file_field(
 ) -> Result<NamedTempFile, Response> {
     let mut len = 0;
     let mut out = NamedTempFile::new_in(runtime_dir).map_err(|e| {
-        error!("failed to create a new temporary file: {e}");
+        error!(error = ?e, "failed to create a new temporary file");
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     })?;
 
@@ -539,7 +539,7 @@ async fn parse_file_field(
         }
 
         out.write_all(&chunk).map_err(|e| {
-            error!("failed to write chunk to temporary file: {e}");
+            error!(error = ?e, "failed to write chunk to temporary file");
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         })?;
     }
@@ -661,7 +661,7 @@ async fn root_post(
             slug: slug.ok_or_else(|| StatusCode::BAD_REQUEST.into_response())?,
         },
         typ => {
-            error!("Unknown workload type `{typ}`");
+            error!(typ, "Unknown workload type");
             return Err(StatusCode::BAD_REQUEST.into_response());
         }
     };
@@ -670,13 +670,13 @@ async fn root_post(
         Workload::Upload { conf, .. } => read_to_string(conf)
             .await
             .map_err(|e| {
-                error!("failed to read uploaded Enarx.toml: {e}");
+                error!(error = ?e, "failed to read uploaded Enarx.toml");
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             })
             .map(|conf| toml::from_str(&conf))?
             .map(|config| listen_ports(config, demo_fqdn))
             .map_err(|e| {
-                debug!("failed to parse uploaded Enarx.toml: {e}");
+                error!(error = ?e, "failed to parse uploaded Enarx.toml");
                 StatusCode::BAD_REQUEST.into_response()
             })?,
         Workload::Drawbridge { slug } => {
@@ -692,18 +692,18 @@ async fn root_post(
                     .text()
                     .await
                     .map_err(|e| {
-                        error!("failed to read Enarx.toml for `{slug}`: {e}");
+                        error!(slug, error = ?e, "failed to read Enarx.toml");
                         StatusCode::INTERNAL_SERVER_ERROR.into_response()
                     })
                     .map(|conf| toml::from_str(&conf))?
                     .map(|config| listen_ports(config, demo_fqdn))
                     .map_err(|e| {
-                        debug!("failed to parse Enarx.toml for `{slug}`: {e}");
+                        error!(slug, error = ?e, "failed to parse Enarx.toml");
                         StatusCode::BAD_REQUEST.into_response()
                     })?,
                 Err(e) if e.status() == Some(StatusCode::NOT_FOUND) => vec![],
                 Err(e) => {
-                    debug!("failed to request Enarx.toml for `{slug}`: {e}");
+                    error!(slug, error = ?e, "failed to request Enarx.toml");
                     return Err(StatusCode::BAD_REQUEST.into_response());
                 }
             }
@@ -733,6 +733,7 @@ async fn root_post(
             .await
             >= jobs_max
     {
+        error!(num_jobs = jobs.len(), "too many jobs running");
         // TODO: Queue the workload for execution in FIFO fashion
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
@@ -761,7 +762,7 @@ async fn root_post(
             let mut jobs = JOBS.write().await;
             match jobs.get(&user) {
                 Some(job) if job.read().await.id == id => {
-                    debug!("killing job after timeout. job_id=`{id}`");
+                    error!(job_id = id, "killing job after timeout");
                     jobs.remove(&user).unwrap().into_inner().kill().await;
                 }
                 _ => {}
@@ -773,11 +774,11 @@ async fn root_post(
         "id": job.id,
         "ports": job.mapped_ports
     }));
-    info!("job started. job_id=`{}`, user_id=`{user}`", job.id);
+    info!(job_id = job.id, %user, "job started");
 
     if let Some(old) = jobs.insert(user, RwLock::new(job)) {
         let old = old.into_inner();
-        debug!("killing the old job. user_id=`{user}` job_id=`{}`", old.id);
+        info!(old_job_id = old.id, %user, "killing old job");
         old.kill().await;
     }
     Ok(resp)
@@ -786,7 +787,7 @@ async fn root_post(
 async fn root_delete(user: User) {
     if let Some(job) = JOBS.write().await.remove(&user) {
         let job = job.into_inner();
-        debug!("explicitly killing job. user_id=`{user}` job_id={}", job.id);
+        info!(%user, job_id = job.id, "explicitly killing job");
         job.kill().await;
     }
 }

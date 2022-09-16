@@ -10,7 +10,6 @@ pub(crate) use openidconnect::url::Url;
 
 use crate::last_page;
 
-use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -78,9 +77,9 @@ struct AuthRequest {
     code: String,
 }
 
-fn ice<E: Display>(info: &'static str) -> impl Fn(E) -> (StatusCode, &'static str) {
+fn ice<E: std::fmt::Debug>(info: &'static str) -> impl Fn(E) -> (StatusCode, &'static str) {
     move |e: E| {
-        error!("{}: {}", info, e);
+        error!(info, error = ?e, "authentication error");
         (StatusCode::INTERNAL_SERVER_ERROR, info)
     }
 }
@@ -110,7 +109,7 @@ async fn authorized(
         Some(id_token) => {
             match id_token.claims(&config.oidc.id_token_verifier(), accept_any_nonce) {
                 Err(e) => {
-                    error!("Failed to verify claims: {}", e);
+                    error!(error = ?e, "failed to verify claims");
                     false
                 }
                 Ok(claims) => claims.additional_claims().has_starred_enarx,

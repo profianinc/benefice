@@ -33,7 +33,7 @@ use tracing::error;
 
 #[derive(Deserialize, Serialize, Debug)]
 struct EnarxClaims {
-    has_starred_enarx: bool,
+    has_starred_enarx: Option<bool>,
 }
 
 impl openidconnect::AdditionalClaims for EnarxClaims {}
@@ -112,7 +112,13 @@ async fn authorized(
                     error!(error = ?e, "failed to verify claims");
                     false
                 }
-                Ok(claims) => claims.additional_claims().has_starred_enarx,
+                Ok(claims) => match claims.additional_claims().has_starred_enarx {
+                    None => {
+                        error!("No has_starred_enarx claim found in id token");
+                        false
+                    }
+                    Some(val) => val,
+                },
             }
         }
     };

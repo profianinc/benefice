@@ -61,6 +61,48 @@ jobs:
         path: benefice-${{ matrix.platform.target }}-oci
     - run: ${{ matrix.platform.test-oci }}
 
+  push_oci:
+    needs: build
+    permissions:
+      actions: read
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/download-artifact@v3
+      with:
+        name: benefice-aarch64-unknown-linux-musl-oci
+    - uses: actions/download-artifact@v3
+      with:
+        name: benefice-x86_64-unknown-linux-musl-oci
+    - run: skopeo copy docker-archive:./benefice-aarch64-unknown-linux-musl-oci containers-storage:localhost/benefice:aarch64
+    - run: skopeo copy docker-archive:./benefice-x86_64-unknown-linux-musl-oci containers-storage:localhost/benefice:x86_64
+    - run: podman image ls
+    - run: podman manifest create benefice:manifest
+    - run: podman manifest add benefice:manifest containers-storage:localhost/benefice:aarch64 --arch=arm64
+    - run: podman manifest add benefice:manifest containers-storage:localhost/benefice:x86_64 --arch=amd64
+    - run: podman manifest inspect benefice:manifest
+    - name: metadata
+      id: metadata
+      uses: docker/metadata-action@v4
+      with:
+        images: ghcr.io/profianinc/benefice
+        tags: |
+          type=ref,event=branch
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+        sep-tags: " "
+    - name: add tags
+      if: github.event_name == 'push'
+      run: podman tag benefice:manifest ${{ steps.metadata.outputs.tags }}
+    - name: push to GitHub Packages
+      if: github.event_name == 'push'
+      uses: redhat-actions/push-to-registry@v2
+      with:
+        tags: ${{ steps.metadata.outputs.tags }}
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
   release:
     needs: build
     permissions:

@@ -100,110 +100,110 @@ static EXAMPLES: OnceCell<Examples> = OnceCell::new();
 /// The configuration file must contain valid TOML table mapping argument
 /// names to their values.
 #[derive(Parser, Debug)]
-#[clap(author, version, about)]
+#[command(author, version, about)]
 struct Args {
     /// Address to bind to.
-    #[clap(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000))]
+    #[arg(long, default_value_t = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 3000))]
     addr: SocketAddr,
 
     /// Externally accessible root URL.
     /// For example: https://benefice.example.com
-    #[clap(long)]
+    #[arg(long)]
     url: auth::Url,
 
     /// Externally accessible domain name for serving demos.
     /// This should not be the same as the benefice server URL for security reasons.
     /// For example: demo.example.com
-    #[clap(long)]
+    #[arg(long)]
     demo_fqdn: String,
 
     /// Maximum jobs.
     /// Defaults to 16x the number of cores on the system.
-    #[clap(long, default_value_t = num_cpus::get() * 16)]
+    #[arg(long, default_value_t = num_cpus::get() * 16)]
     jobs: usize,
 
     /// Default file size limit (in MiB).
-    #[clap(long, default_value_t = 10)]
+    #[arg(long, default_value_t = 10)]
     size_limit_default: usize,
 
     /// Starred file size limit (in MiB).
-    #[clap(long, default_value_t = 50)]
+    #[arg(long, default_value_t = 50)]
     size_limit_starred: usize,
 
     /// Default job timeout (in seconds).
-    #[clap(long, default_value_t = 5 * 60)]
+    #[arg(long, default_value_t = 5 * 60)]
     timeout_default: u64,
 
     /// Starred job timeout (in seconds).
-    #[clap(long, default_value_t = 15 * 60)]
+    #[arg(long, default_value_t = 15 * 60)]
     timeout_starred: u64,
 
     /// The lowest listen port to be allocated via the selected OCI container engine.
-    #[clap(long, default_value_t = 1024)]
+    #[arg(long, default_value_t = 1024)]
     port_min: u16,
 
     /// The highest listen port to be allocated via the selected OCI container engine.
-    #[clap(long, default_value_t = 65535)]
+    #[arg(long, default_value_t = 65535)]
     port_max: u16,
 
     /// The maximum number of listen ports a workload is allowed to have (0 to disable).
-    #[clap(long, default_value_t = 0)]
+    #[arg(long, default_value_t = 0)]
     listen_max: u16,
 
     /// `ss` command to execute, for example `ss`.
-    #[clap(long, default_value = "ss")]
+    #[arg(long, default_value = "ss")]
     ss_command: OsString,
 
     /// OCI container engine command to execute, for example, `docker` or `podman`.
     /// This may also be an absolute path.
-    #[clap(long, default_value = "docker")]
+    #[arg(long, default_value = "docker")]
     oci_command: OsString,
 
     /// OCI image to use.
     /// Defaults to the last tested image from https://hub.docker.com/r/enarx/enarx
-    #[clap(long, default_value = "enarx/enarx:0.6.3")]
+    #[arg(long, default_value = "enarx/enarx:0.6.3")]
     oci_image: String,
 
     /// OpenID Connect issuer URL.
-    #[clap(long, default_value = "https://auth.profian.com/")]
+    #[arg(long, default_value = "https://auth.profian.com/")]
     oidc_issuer: auth::Url,
 
     /// OpenID Connect client ID.
-    #[clap(long)]
+    #[arg(long)]
     oidc_client: String,
 
     /// Path to a file containing OpenID Connect secret.
-    #[clap(long)]
+    #[arg(long)]
     oidc_secret: Option<secret::SecretFile<String>>,
 
     /// Key used to encrypt the session cookie.
-    #[clap(long)]
+    #[arg(long)]
     session_key: Option<secret::SecretFile<Key>>,
 
     /// Session cookie time to live (in minutes).
-    #[clap(long, default_value_t = 24 * 60)]
+    #[arg(long, default_value_t = 24 * 60)]
     session_ttl: u64,
 
     /// Runtime directory, where uploaded workloads and configs will be temporarily stored.
-    #[clap(long, default_value_os_t = temp_dir())]
+    #[arg(long, default_value_os_t = temp_dir())]
     runtime_dir: PathBuf,
 
     /// Devices to expose to the container.
-    #[clap(long)]
+    #[arg(long)]
     devices: Vec<PathBuf>,
 
     /// Paths to expose to the container.
     /// Usually, this would be `/var/run/aesmd/aesm.socket` on Intel SGX and `/var/cache/amd-sev` on AMD SEV.
-    #[clap(long)]
+    #[arg(long)]
     paths: Vec<PathBuf>,
 
     /// Whether to run the container in privileged mode.
-    #[clap(long)]
+    #[arg(long)]
     privileged: bool,
 
     /// Examples to be displayed on the examples page. If none are provided some built-in examples will be provided.
     /// This will be parsed as TOML.
-    #[clap(long)]
+    #[arg(long)]
     examples: Option<Examples>,
 }
 

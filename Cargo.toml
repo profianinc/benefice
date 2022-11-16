@@ -9,7 +9,7 @@ anyhow = { version = "1.0.66", default-features = false, features = ["std"] }
 askama = { version = "0.11.1", default-features = false }
 axum = { version = "0.5.17", default-features = false, features = ["headers", "json", "multipart", "query"] }
 axum-extra = { version = "0.3.7", default-features = false, features = ["cookie"] }
-base64 = { version = "0.13.0", default-features = false }
+base64 = { version = "0.13.1", default-features = false }
 clap = { version = "3.2.3", default-features = false, features = ["derive", "std"] }
 confargs = { version = "0.1.1", default-features = false }
 enarx-config = { version = "0.6.1", default-features = false }

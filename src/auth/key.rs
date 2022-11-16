@@ -12,6 +12,7 @@ use zeroize::Zeroize;
 
 type KeySize = <Aes128Gcm as NewAead>::KeySize;
 
+#[derive(Clone)]
 pub struct Key(aes_gcm::Key<KeySize>);
 
 impl Debug for Key {

@@ -8,7 +8,7 @@ use zeroize::Zeroizing;
 
 use crate::auth::Key;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SecretFile<T>(T);
 
 impl From<SecretFile<Key>> for Key {

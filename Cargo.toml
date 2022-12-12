@@ -20,7 +20,7 @@ once_cell = { version = "1.16.0", default-features = false }
 openidconnect = { version = "2.4.0", default-features = false, features = ["rustls-tls", "reqwest"] }
 rand = { version = "0.8.4", default-features = false }
 reqwest = { version = "0.11.13", default-features = false, features = ["rustls-tls", "json"] }
-serde = { version = "1.0.148", default-features = false }
+serde = { version = "1.0.150", default-features = false }
 serde_json = { version = "1.0.89", default-features = false, features = ["std"] }
 tempfile = { version = "3.3.0", default-features = false }
 tokio = { version = "1.22.0", default-features = false, features = ["macros", "process", "rt-multi-thread", "io-util", "fs", "sync"] }

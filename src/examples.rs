@@ -95,6 +95,16 @@ GreenhouseMonitor is licensed under MIT.<br />
 Copyright (c) .NET Foundation and Contributors"#.to_string()
             },
             Example {
+                slug: "nickvidal/ICUMonitor:0.6.0".to_string(),
+                url: "https://github.com/enarx/ICUMonitor".to_string(),
+                description: r#"ICUMonitor is a ASP.NET healthcare demo application."#.to_string()
+            },
+            Example {
+                slug: "nickvidal/ConfidentialTrading:0.2.0".to_string(),
+                url: "https://github.com/enarx/ConfidentialTrading".to_string(),
+                description: r#"ConfidentialTrading is a ASP.NET finance demo application."#.to_string()
+            },
+            Example {
                 slug: "examples/http-rust-tokio:0.2.0".to_string(),
                 url: "https://github.com/enarx/codex/tree/v0.1.0/Rust/tokio-http".to_string(),
                 description: r#"A modified version of the <a href="https://github.com/tokio-rs/tokio/blob/master/examples/tinyhttp.rs" target="_blank">tinyhttp.rs</a> example in the <a href="https://github.com/tokio-rs/tokio" target="_blank">tokio</a> repository."#.to_string()

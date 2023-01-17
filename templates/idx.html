@@ -1048,6 +1048,7 @@
                     var hostPort = map[0];
                     var containerPort = map[1][0];
                     var containerUrl = map[1][1];
+                    containerUrl.replace(containerPort.toString(), hostPort.toString());
                     result +=
                         '<li>Port ' + hostPort + ' -> ' + containerPort +
                         ' (<a href="' + containerUrl + '/" target="_blank">link</a>)</li>';

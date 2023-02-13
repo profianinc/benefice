@@ -58,6 +58,7 @@ async fn used_ports<T: FromIterator<u16>>(ss: impl AsRef<OsStr>) -> anyhow::Resu
 impl Job {
     /// Spawns a new job via selected OCI engine, it is not safe for concurrent use.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::let_underscore_future)]
     pub(crate) async fn spawn(
         id: String,
         workload: Workload,

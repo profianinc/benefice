@@ -60,7 +60,7 @@ use clap::Parser;
 use confargs::{args, prefix_char_filter, Toml};
 use enarx_config::{Config, File, Protocol};
 use futures_util::{stream, StreamExt};
-use humansize::{file_size_opts as options, FileSize};
+use humansize::FormatSize;
 use once_cell::sync::{Lazy, OnceCell};
 use serde_json::json;
 use tempfile::NamedTempFile;
@@ -279,12 +279,7 @@ impl Limits {
     }
 
     fn size_human(&self, star: bool) -> String {
-        self.size(star)
-            .file_size(options::CONVENTIONAL)
-            .unwrap_or_else(|e| {
-                error!(error = ?e, "Failed to get human readable size string");
-                "?".to_string()
-            })
+        self.size(star).format_size(humansize::DECIMAL)
     }
 }
 

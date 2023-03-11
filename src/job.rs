@@ -117,7 +117,6 @@ impl Job {
                 + (rand::thread_rng().next_u32() as usize % port_range.len()) as u16;
             let mapped: HashMap<_, _> = (start..port_range.end)
                 .chain(port_range.start..start)
-                .into_iter()
                 .filter(|p| !used.contains(p))
                 .zip(ports)
                 .collect();

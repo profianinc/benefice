@@ -24,7 +24,7 @@ serde = { version = "1.0.154", default-features = false }
 serde_json = { version = "1.0.93", default-features = false, features = ["std"] }
 tempfile = { version = "3.3.0", default-features = false }
 tokio = { version = "1.23.1", default-features = false, features = ["macros", "process", "rt-multi-thread", "io-util", "fs", "sync"] }
-toml = { version = "0.7.2", default-features = false, features = ["parse"] }
+toml = { version = "0.7.3", default-features = false, features = ["parse"] }
 tower-http = { version = "0.4.0", default-features = false, features = ["trace"] }
 tracing = { version = "0.1.37", default-features = false, features = ["std", "release_max_level_info"] }
 tracing-subscriber = { version = "0.3.11", default-features = false, features = ["ansi", "env-filter", "std", "tracing-log", "json"] }

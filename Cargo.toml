@@ -8,7 +8,7 @@ aes-gcm = { version = "0.9.4", default-features = false, features = ["aes", "std
 anyhow = { version = "1.0.70", default-features = false, features = ["std"] }
 askama = { version = "0.12.0", default-features = false }
 axum = { version = "0.5.17", default-features = false, features = ["headers", "json", "multipart", "query"] }
-axum-extra = { version = "0.3.7", default-features = false, features = ["cookie"] }
+axum-extra = { version = "0.7.1", default-features = false, features = ["cookie"] }
 base64 = { version = "0.13.1", default-features = false }
 clap = { version = "4.1.9", default-features = false, features = ["derive", "error-context", "help", "std", "usage", "wrap_help"] }
 confargs = { version = "0.1.1", default-features = false }
